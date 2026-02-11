@@ -175,7 +175,7 @@ apps/hub-api/
 │   ├── config.rs            # Env-based configuration
 │   ├── db/
 │   │   ├── mod.rs
-│   │   └── pool.rs          # SQLx PgPool setup
+│   │   └── pool.rs          # Diesel async pool setup
 │   ├── models/
 │   │   ├── mod.rs
 │   │   ├── user.rs
@@ -200,9 +200,15 @@ apps/hub-api/
 │   │   └── auth.rs           # Bearer token extraction + validation
 │   └── error.rs              # ApiError type
 ├── migrations/
-│   ├── 001_create_users.sql
-│   ├── 002_create_sessions.sql
-│   └── 003_create_pods.sql
+│   ├── 20260210120000_create_users/
+│   │   ├── up.sql
+│   │   └── down.sql
+│   ├── 20260210120001_create_sessions/
+│   │   ├── up.sql
+│   │   └── down.sql
+│   └── 20260210120002_create_pods/
+│       ├── up.sql
+│       └── down.sql
 └── project.json
 ```
 
@@ -212,9 +218,10 @@ apps/hub-api/
 
 **Priority: P0 — must be done first**
 
-- Add dependencies to `Cargo.toml`: `sqlx` (with `postgres`, `runtime-tokio`, `tls-rustls`, `migrate` features), `dotenvy`, `config` or manual env parsing
+- Add dependencies to `Cargo.toml`: `diesel` (postgres), `diesel-async` (deadpool), `diesel_migrations`, `dotenvy`, `config` or manual env parsing
 - Create `config.rs`: reads from env vars (`DATABASE_URL`, `REDIS_URL`, `HUB_DOMAIN`, `SIGNING_KEY_SEED`, `PORT`)
-- Create `db/pool.rs`: initialize `sqlx::PgPool`, run migrations on startup
+- Create `db/pool.rs`: initialize Diesel async pool
+- Add a standalone migration runner (e.g. `cargo run -p hub-api --bin migrate`) and do not auto-run migrations on startup
 - Create a `docker-compose.yml` at repo root for local PostgreSQL + Redis
 
 **Env vars:**
@@ -993,7 +1000,7 @@ Both `hub-api` and `pod-api` depend on `voxora-common = { path = "../../libs/vox
 
 ### Hub Database
 
-Run against `hub` PostgreSQL database. Use `sqlx-cli` for migration management.
+Run against `hub` PostgreSQL database. Use Diesel migrations (via `diesel` CLI or the `migrate` binary).
 
 ```sql
 -- 001_create_users.sql
@@ -1309,10 +1316,10 @@ RUST_LOG=pod_api=debug,tower_http=debug
 # Start infrastructure
 docker compose up -d
 
-# Run migrations (once sqlx-cli is installed)
-cargo install sqlx-cli --no-default-features --features postgres
-cd apps/hub-api && sqlx migrate run
-cd apps/pod-api && sqlx migrate run
+# Run migrations (Hub uses Diesel migrations)
+cargo run -p hub-api --bin migrate
+# When Pod migrations are implemented with Diesel, run from its crate root:
+# cd apps/pod-api && diesel migration run
 
 # Start services (in separate terminals or via Nx)
 pnpm nx serve hub-api
@@ -1326,17 +1333,19 @@ pnpm nx serve web-client
 
 ### Rust Crates (Hub + Pod shared)
 
-| Crate                                                     | Purpose            |
-| --------------------------------------------------------- | ------------------ |
-| `axum` 0.7                                                | HTTP framework     |
-| `tokio` 1.x                                               | Async runtime      |
-| `serde` / `serde_json`                                    | Serialization      |
-| `sqlx` 0.8 (postgres, runtime-tokio, tls-rustls, migrate) | Database           |
-| `tracing` / `tracing-subscriber`                          | Structured logging |
-| `dotenvy`                                                 | .env file loading  |
-| `ulid`                                                    | ULID generation    |
-| `tower-http` (cors, trace)                                | HTTP middleware    |
-| `chrono` (serde feature)                                  | Timestamps         |
+| Crate                            | Purpose            |
+| -------------------------------- | ------------------ |
+| `axum` 0.7                       | HTTP framework     |
+| `tokio` 1.x                      | Async runtime      |
+| `serde` / `serde_json`           | Serialization      |
+| `diesel` 2.x (postgres)          | Database (sync)    |
+| `diesel-async` 0.5 (deadpool)    | Database (async)   |
+| `diesel_migrations` 2.x          | Migrations         |
+| `tracing` / `tracing-subscriber` | Structured logging |
+| `dotenvy`                        | .env file loading  |
+| `ulid`                           | ULID generation    |
+| `tower-http` (cors, trace)       | HTTP middleware    |
+| `chrono` (serde feature)         | Timestamps         |
 
 ### Hub-Only Crates
 
