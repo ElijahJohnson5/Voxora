@@ -1,9 +1,3 @@
-mod config;
-mod db;
-mod error;
-mod models;
-mod routes;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -12,16 +6,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use config::Config;
-use db::pool::DbPool;
+use hub_api::auth::keys::SigningKeys;
+use hub_api::config::Config;
+use hub_api::AppState;
 use std::path::Path;
-
-/// Shared application state available to all route handlers.
-#[derive(Clone)]
-pub struct AppState {
-    pub db: DbPool,
-    pub config: Arc<Config>,
-}
 
 #[tokio::main]
 async fn main() {
@@ -40,10 +28,23 @@ async fn main() {
     let port = config.port;
 
     // Connect to PostgreSQL
-    let db = db::pool::connect(&config.database_url).await;
+    let db = hub_api::db::pool::connect(&config.database_url).await;
+
+    // Connect to Redis
+    let redis_client = redis::Client::open(config.redis_url.as_str()).expect("invalid REDIS_URL");
+    let redis = redis::aio::ConnectionManager::new(redis_client)
+        .await
+        .expect("failed to connect to Redis");
+    tracing::info!("redis connected");
+
+    // Derive Ed25519 signing keys from seed
+    let keys = Arc::new(SigningKeys::from_seed(&config.signing_key_seed));
+    tracing::info!(kid = %keys.kid, "signing keys loaded");
 
     let state = AppState {
         db,
+        redis,
+        keys,
         config: Arc::new(config),
     };
 
@@ -53,7 +54,7 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .merge(routes::router())
+        .merge(hub_api::routes::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

@@ -7,21 +7,32 @@ edition = "2021"
 voxora-common = { path = "../../libs/voxora-common" }
 
 argon2 = "0.5"
+async-trait = "0.1"
 axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "2", features = ["postgres", "chrono"] }
 diesel-async = { version = "0.5", features = ["postgres", "deadpool", "async-connection-wrapper"] }
 diesel_migrations = "2"
 dotenvy = "0.15"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 futures-util = { version = "0.3", features = ["alloc"] }
+jsonwebtoken = "9"
 password-hash = "0.5"
 rand = "0.8"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+axum-test = "16"
+http = "1"
+tower = { version = "0.5", features = ["util"] }
 
 [[bin]]
 name = "hub-api"
