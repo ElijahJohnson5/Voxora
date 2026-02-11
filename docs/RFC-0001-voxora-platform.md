@@ -1,7 +1,7 @@
 # RFC-0001: Voxora Platform Architecture
 
 | Field       | Value                                    |
-|-------------|------------------------------------------|
+| ----------- | ---------------------------------------- |
 | **Title**   | Voxora: Federated Communication Platform |
 | **Status**  | Draft                                    |
 | **Authors** | Voxora Core Team                         |
@@ -81,17 +81,17 @@ Voxora takes a **federated-with-central-identity** approach:
 
 ## 3. Terminology
 
-| Term | Definition |
-|------|-----------|
-| **Hub** | The central Voxora service. Provides OIDC, user profiles, pod registry, verification, billing. There is exactly one Hub. |
-| **Pod** | An independently operated server that hosts communities, stores messages, and runs real-time services. Anyone can run a Pod. |
-| **Community** | A named group space on a Pod, analogous to a Discord server or guild. A single Pod can host many Communities. |
-| **Channel** | A communication context within a Community. Types: text, voice, announcement, forum, stage. |
-| **SIA** | Signed Identity Assertion. A compact, signed JWT issued by the Hub that attests to a user's identity. Used by clients to prove identity to Pods. |
-| **PAT** | Pod Access Token. A session token issued by a Pod after validating a SIA. Scoped to that Pod's APIs. |
-| **SFU** | Selective Forwarding Unit. A WebRTC server that receives media streams and selectively forwards them to participants. |
-| **TURN** | Traversal Using Relays around NAT. A relay server for WebRTC when direct P2P fails. |
-| **Gateway** | The WebSocket endpoint on a Pod that delivers real-time events to clients. |
+| Term          | Definition                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Hub**       | The central Voxora service. Provides OIDC, user profiles, pod registry, verification, billing. There is exactly one Hub.                         |
+| **Pod**       | An independently operated server that hosts communities, stores messages, and runs real-time services. Anyone can run a Pod.                     |
+| **Community** | A named group space on a Pod, analogous to a Discord server or guild. A single Pod can host many Communities.                                    |
+| **Channel**   | A communication context within a Community. Types: text, voice, announcement, forum, stage.                                                      |
+| **SIA**       | Signed Identity Assertion. A compact, signed JWT issued by the Hub that attests to a user's identity. Used by clients to prove identity to Pods. |
+| **PAT**       | Pod Access Token. A session token issued by a Pod after validating a SIA. Scoped to that Pod's APIs.                                             |
+| **SFU**       | Selective Forwarding Unit. A WebRTC server that receives media streams and selectively forwards them to participants.                            |
+| **TURN**      | Traversal Using Relays around NAT. A relay server for WebRTC when direct P2P fails.                                                              |
+| **Gateway**   | The WebSocket endpoint on a Pod that delivers real-time events to clients.                                                                       |
 
 ---
 
@@ -193,51 +193,51 @@ The Hub implements a full OpenID Connect Provider conforming to:
 
 #### 5.1.1 Endpoints
 
-| Endpoint | Path | Purpose |
-|----------|------|---------|
-| Authorization | `GET /oidc/authorize` | Start auth code flow |
-| Token | `POST /oidc/token` | Exchange code for tokens |
-| UserInfo | `GET /oidc/userinfo` | Retrieve user claims |
-| JWKS | `GET /oidc/.well-known/jwks.json` | Public signing keys |
-| Discovery | `GET /.well-known/openid-configuration` | Provider metadata |
-| Revocation | `POST /oidc/revoke` | Revoke tokens |
-| Introspection | `POST /oidc/introspect` | Token introspection (for Pods) |
-| End Session | `POST /oidc/logout` | Logout |
-| Device Auth | `POST /oidc/device` | Device flow for TV/CLI |
-| Registration | `POST /oidc/register` | Dynamic client registration (for Pods) |
+| Endpoint      | Path                                    | Purpose                                |
+| ------------- | --------------------------------------- | -------------------------------------- |
+| Authorization | `GET /oidc/authorize`                   | Start auth code flow                   |
+| Token         | `POST /oidc/token`                      | Exchange code for tokens               |
+| UserInfo      | `GET /oidc/userinfo`                    | Retrieve user claims                   |
+| JWKS          | `GET /oidc/.well-known/jwks.json`       | Public signing keys                    |
+| Discovery     | `GET /.well-known/openid-configuration` | Provider metadata                      |
+| Revocation    | `POST /oidc/revoke`                     | Revoke tokens                          |
+| Introspection | `POST /oidc/introspect`                 | Token introspection (for Pods)         |
+| End Session   | `POST /oidc/logout`                     | Logout                                 |
+| Device Auth   | `POST /oidc/device`                     | Device flow for TV/CLI                 |
+| Registration  | `POST /oidc/register`                   | Dynamic client registration (for Pods) |
 
 #### 5.1.2 Supported Flows
 
-| Flow | Use Case |
-|------|----------|
+| Flow                      | Use Case                     |
+| ------------------------- | ---------------------------- |
 | Authorization Code + PKCE | Web, Desktop, Mobile clients |
-| Device Authorization | CLI tools, smart TV |
-| Client Credentials | Pod ↔ Hub server-to-server |
-| Refresh Token | Silent token renewal |
+| Device Authorization      | CLI tools, smart TV          |
+| Client Credentials        | Pod ↔ Hub server-to-server   |
+| Refresh Token             | Silent token renewal         |
 
 PKCE is **required** for all public clients. `plain` challenge method is
 **not** supported; only `S256`.
 
 #### 5.1.3 Token Types
 
-| Token | Format | Lifetime | Audience |
-|-------|--------|----------|----------|
-| Access Token | Opaque reference | 15 minutes | Hub APIs |
+| Token         | Format           | Lifetime          | Audience           |
+| ------------- | ---------------- | ----------------- | ------------------ |
+| Access Token  | Opaque reference | 15 minutes        | Hub APIs           |
 | Refresh Token | Opaque reference | 30 days (sliding) | Hub token endpoint |
-| ID Token | JWT (signed) | 15 minutes | Client |
-| SIA | JWT (signed) | 5 minutes | Pods |
+| ID Token      | JWT (signed)     | 15 minutes        | Client             |
+| SIA           | JWT (signed)     | 5 minutes         | Pods               |
 
 #### 5.1.4 Scopes
 
-| Scope | Claims / Access |
-|-------|----------------|
-| `openid` | `sub`, `iss`, `aud`, `exp`, `iat` |
-| `profile` | `username`, `display_name`, `avatar_url` |
-| `email` | `email`, `email_verified` |
-| `pods` | Ability to request SIAs for Pod auth |
-| `pods.admin` | Pod registration and management |
-| `billing` | Billing and subscription APIs |
-| `offline_access` | Refresh token issuance |
+| Scope            | Claims / Access                          |
+| ---------------- | ---------------------------------------- |
+| `openid`         | `sub`, `iss`, `aud`, `exp`, `iat`        |
+| `profile`        | `username`, `display_name`, `avatar_url` |
+| `email`          | `email`, `email_verified`                |
+| `pods`           | Ability to request SIAs for Pod auth     |
+| `pods.admin`     | Pod registration and management          |
+| `billing`        | Billing and subscription APIs            |
+| `offline_access` | Refresh token issuance                   |
 
 ### 5.2 User Registration
 
@@ -347,11 +347,11 @@ Content-Type: application/json
 
 #### 5.5.1 Key Types
 
-| Key | Algorithm | Purpose |
-|-----|-----------|---------|
-| SIA Signing Key | Ed25519 | Sign SIAs |
-| ID Token Signing Key | Ed25519 | Sign OIDC ID tokens |
-| Encryption Key | X25519 | Encrypt sensitive claims (future) |
+| Key                  | Algorithm | Purpose                           |
+| -------------------- | --------- | --------------------------------- |
+| SIA Signing Key      | Ed25519   | Sign SIAs                         |
+| ID Token Signing Key | Ed25519   | Sign OIDC ID tokens               |
+| Encryption Key       | X25519    | Encrypt sensitive claims (future) |
 
 #### 5.5.2 Key Rotation
 
@@ -503,11 +503,11 @@ Content-Type: application/json
 
 #### 6.2.2 Heartbeat Intervals
 
-| Pod Status | Interval | Missed Threshold |
-|-----------|----------|-----------------|
-| Active | 60 seconds | 3 missed → degraded |
-| Degraded | 30 seconds | 5 more missed → offline |
-| Offline | N/A | Auto-removed from discovery after 7 days |
+| Pod Status | Interval   | Missed Threshold                         |
+| ---------- | ---------- | ---------------------------------------- |
+| Active     | 60 seconds | 3 missed → degraded                      |
+| Degraded   | 30 seconds | 5 more missed → offline                  |
+| Offline    | N/A        | Auto-removed from discovery after 7 days |
 
 ### 6.3 Pod Discovery
 
@@ -533,12 +533,12 @@ Response:
 
 #### 6.3.2 Sort Options
 
-| Sort | Description |
-|------|-------------|
-| `popular` | By member count descending |
-| `trending` | By growth rate over 7 days |
-| `newest` | By registration date |
-| `nearest` | By geographic proximity to client |
+| Sort       | Description                       |
+| ---------- | --------------------------------- |
+| `popular`  | By member count descending        |
+| `trending` | By growth rate over 7 days        |
+| `newest`   | By registration date              |
+| `nearest`  | By geographic proximity to client |
 
 #### 6.3.3 Search
 
@@ -552,12 +552,12 @@ Full-text search over Pod name, description, tags, and community names.
 
 The Hub can push events to Pods via webhook:
 
-| Event | Trigger |
-|-------|---------|
-| `user.banned` | Hub-level ban (spam, abuse) |
-| `user.updated` | Username or avatar change |
-| `key.rotated` | JWKS key rotation notice |
-| `pod.verification_changed` | Verification status update |
+| Event                      | Trigger                     |
+| -------------------------- | --------------------------- |
+| `user.banned`              | Hub-level ban (spam, abuse) |
+| `user.updated`             | Username or avatar change   |
+| `key.rotated`              | JWKS key rotation notice    |
+| `pod.verification_changed` | Verification status update  |
 
 Pods register a webhook URL during registration. Events are signed with
 HMAC-SHA256 using the Pod's client secret.
@@ -635,12 +635,12 @@ Content-Type: application/json
 
 #### 7.1.2 PAT Properties
 
-| Property | Value |
-|----------|-------|
-| Format | Opaque token (stored server-side) |
-| Lifetime | 1 hour |
-| Refresh | Via Pod refresh token (24-hour lifetime) |
-| Scope | Full Pod API access (further restricted by roles) |
+| Property | Value                                             |
+| -------- | ------------------------------------------------- |
+| Format   | Opaque token (stored server-side)                 |
+| Lifetime | 1 hour                                            |
+| Refresh  | Via Pod refresh token (24-hour lifetime)          |
+| Scope    | Full Pod API access (further restricted by roles) |
 
 #### 7.1.3 WebSocket Ticket
 
@@ -664,30 +664,30 @@ Channel-level overrides can grant or deny permissions per-role per-channel.
 
 #### 7.2.2 Permission Definitions
 
-| Permission | Bit | Description |
-|-----------|-----|-------------|
-| `VIEW_CHANNEL` | 0 | Can see the channel |
-| `SEND_MESSAGES` | 1 | Can send messages |
-| `SEND_ATTACHMENTS` | 2 | Can upload files |
-| `MANAGE_MESSAGES` | 3 | Can delete/pin others' messages |
-| `MANAGE_CHANNELS` | 4 | Can create/edit/delete channels |
-| `MANAGE_COMMUNITY` | 5 | Can edit community settings |
-| `MANAGE_ROLES` | 6 | Can create/edit roles below own |
-| `KICK_MEMBERS` | 7 | Can kick members |
-| `BAN_MEMBERS` | 8 | Can ban members |
-| `INVITE_MEMBERS` | 9 | Can create invites |
-| `VOICE_CONNECT` | 10 | Can join voice channels |
-| `VOICE_SPEAK` | 11 | Can transmit audio |
-| `VOICE_VIDEO` | 12 | Can transmit video |
-| `VOICE_MUTE_OTHERS` | 13 | Can server-mute others |
-| `VOICE_DEAFEN_OTHERS` | 14 | Can server-deafen others |
-| `VOICE_MOVE_OTHERS` | 15 | Can move others between voice channels |
-| `USE_REACTIONS` | 16 | Can add reactions |
-| `CREATE_THREADS` | 17 | Can create threads |
-| `EMBED_LINKS` | 18 | Can post rich embeds |
-| `MENTION_EVERYONE` | 19 | Can @everyone / @here |
-| `VIEW_AUDIT_LOG` | 20 | Can view audit log |
-| `ADMINISTRATOR` | 31 | All permissions (overrides all) |
+| Permission            | Bit | Description                            |
+| --------------------- | --- | -------------------------------------- |
+| `VIEW_CHANNEL`        | 0   | Can see the channel                    |
+| `SEND_MESSAGES`       | 1   | Can send messages                      |
+| `SEND_ATTACHMENTS`    | 2   | Can upload files                       |
+| `MANAGE_MESSAGES`     | 3   | Can delete/pin others' messages        |
+| `MANAGE_CHANNELS`     | 4   | Can create/edit/delete channels        |
+| `MANAGE_COMMUNITY`    | 5   | Can edit community settings            |
+| `MANAGE_ROLES`        | 6   | Can create/edit roles below own        |
+| `KICK_MEMBERS`        | 7   | Can kick members                       |
+| `BAN_MEMBERS`         | 8   | Can ban members                        |
+| `INVITE_MEMBERS`      | 9   | Can create invites                     |
+| `VOICE_CONNECT`       | 10  | Can join voice channels                |
+| `VOICE_SPEAK`         | 11  | Can transmit audio                     |
+| `VOICE_VIDEO`         | 12  | Can transmit video                     |
+| `VOICE_MUTE_OTHERS`   | 13  | Can server-mute others                 |
+| `VOICE_DEAFEN_OTHERS` | 14  | Can server-deafen others               |
+| `VOICE_MOVE_OTHERS`   | 15  | Can move others between voice channels |
+| `USE_REACTIONS`       | 16  | Can add reactions                      |
+| `CREATE_THREADS`      | 17  | Can create threads                     |
+| `EMBED_LINKS`         | 18  | Can post rich embeds                   |
+| `MENTION_EVERYONE`    | 19  | Can @everyone / @here                  |
+| `VIEW_AUDIT_LOG`      | 20  | Can view audit log                     |
+| `ADMINISTRATOR`       | 31  | All permissions (overrides all)        |
 
 #### 7.2.3 Role Hierarchy
 
@@ -732,15 +732,15 @@ Channel-level overrides can grant or deny permissions per-role per-channel.
 
 ### 8.2 Message Types
 
-| Type | Value | Description |
-|------|-------|-------------|
-| `default` | 0 | Normal user message |
-| `reply` | 1 | Reply to another message |
-| `thread_starter` | 2 | First message of a thread |
-| `system_join` | 10 | User joined the community |
-| `system_leave` | 11 | User left the community |
-| `system_pin` | 12 | Message was pinned |
-| `system_channel_update` | 13 | Channel settings changed |
+| Type                    | Value | Description               |
+| ----------------------- | ----- | ------------------------- |
+| `default`               | 0     | Normal user message       |
+| `reply`                 | 1     | Reply to another message  |
+| `thread_starter`        | 2     | First message of a thread |
+| `system_join`           | 10    | User joined the community |
+| `system_leave`          | 11    | User left the community   |
+| `system_pin`            | 12    | Message was pinned        |
+| `system_channel_update` | 13    | Channel settings changed  |
 
 ### 8.3 Message Ordering
 
@@ -855,6 +855,7 @@ Each Pod runs a **Selective Forwarding Unit (SFU)** for voice and video.
 ```
 
 Why SFU over MCU or P2P:
+
 - **vs P2P**: Scales beyond 2-3 participants. Clients upload once.
 - **vs MCU**: Lower server CPU (no transcoding). Lower latency.
 
@@ -910,11 +911,11 @@ Signaling is performed over the existing WebSocket Gateway connection.
 
 ### 9.3 Codec Negotiation
 
-| Media | Primary Codec | Fallback |
-|-------|--------------|----------|
-| Audio | Opus @ 48kHz | Opus @ 16kHz |
-| Video | VP9 | VP8 |
-| Screen Share | AV1 | VP9 |
+| Media        | Primary Codec | Fallback     |
+| ------------ | ------------- | ------------ |
+| Audio        | Opus @ 48kHz  | Opus @ 16kHz |
+| Video        | VP9           | VP8          |
+| Screen Share | AV1           | VP9          |
 
 - Audio: Always Opus. Bitrate negotiated (32-128 kbps).
 - Video: Simulcast with 3 layers (high/medium/low quality).
@@ -1640,20 +1641,20 @@ Supported encodings: `json`, `msgpack`.
 
 ### 13.2 Opcodes
 
-| Opcode | Name | Direction | Description |
-|--------|------|-----------|-------------|
-| 0 | DISPATCH | Server → Client | Event dispatch (has event name + data) |
-| 1 | HEARTBEAT | Client → Server | Keep-alive ping |
-| 2 | IDENTIFY | Client → Server | Auth with WS ticket |
-| 3 | RESUME | Client → Server | Resume dropped connection |
-| 4 | VOICE_STATE_UPDATE | Client → Server | Join/leave/update voice |
-| 5 | VOICE_SERVER | Server → Client | Voice connection details |
-| 6 | HEARTBEAT_ACK | Server → Client | Heartbeat response |
-| 7 | RECONNECT | Server → Client | Server requests client reconnect |
-| 8 | REQUEST_MEMBERS | Client → Server | Request member list chunk |
-| 9 | PRESENCE_UPDATE | Client → Server | Update own presence |
-| 10 | SUBSCRIBE | Client → Server | Subscribe to channels/events |
-| 11 | UNSUBSCRIBE | Client → Server | Unsubscribe from channels/events |
+| Opcode | Name               | Direction       | Description                            |
+| ------ | ------------------ | --------------- | -------------------------------------- |
+| 0      | DISPATCH           | Server → Client | Event dispatch (has event name + data) |
+| 1      | HEARTBEAT          | Client → Server | Keep-alive ping                        |
+| 2      | IDENTIFY           | Client → Server | Auth with WS ticket                    |
+| 3      | RESUME             | Client → Server | Resume dropped connection              |
+| 4      | VOICE_STATE_UPDATE | Client → Server | Join/leave/update voice                |
+| 5      | VOICE_SERVER       | Server → Client | Voice connection details               |
+| 6      | HEARTBEAT_ACK      | Server → Client | Heartbeat response                     |
+| 7      | RECONNECT          | Server → Client | Server requests client reconnect       |
+| 8      | REQUEST_MEMBERS    | Client → Server | Request member list chunk              |
+| 9      | PRESENCE_UPDATE    | Client → Server | Update own presence                    |
+| 10     | SUBSCRIBE          | Client → Server | Subscribe to channels/events           |
+| 11     | UNSUBSCRIBE        | Client → Server | Unsubscribe from channels/events       |
 
 ### 13.3 Connection Lifecycle
 
@@ -1739,42 +1740,42 @@ must re-IDENTIFY.
 
 ### 13.4 Dispatch Events
 
-| Event Name | Description |
-|-----------|-------------|
-| `READY` | Initial state after IDENTIFY |
-| `RESUMED` | Session resumed successfully |
-| `MESSAGE_CREATE` | New message |
-| `MESSAGE_UPDATE` | Message edited |
-| `MESSAGE_DELETE` | Message deleted |
-| `MESSAGE_REACTION_ADD` | Reaction added |
-| `MESSAGE_REACTION_REMOVE` | Reaction removed |
-| `CHANNEL_CREATE` | Channel created |
-| `CHANNEL_UPDATE` | Channel modified |
-| `CHANNEL_DELETE` | Channel deleted |
-| `COMMUNITY_UPDATE` | Community settings changed |
-| `MEMBER_JOIN` | New member |
-| `MEMBER_LEAVE` | Member left |
-| `MEMBER_UPDATE` | Member roles/nickname changed |
-| `ROLE_CREATE` | Role created |
-| `ROLE_UPDATE` | Role modified |
-| `ROLE_DELETE` | Role deleted |
-| `PRESENCE_UPDATE` | User presence changed |
-| `TYPING_START` | User started typing |
-| `VOICE_STATE_UPDATE` | User voice state changed |
-| `VOICE_SERVER_UPDATE` | Voice server details |
-| `INVITE_CREATE` | Invite created |
-| `INVITE_DELETE` | Invite deleted |
-| `THREAD_CREATE` | Thread started |
-| `THREAD_UPDATE` | Thread modified (archived, etc.) |
-| `THREAD_MEMBERS_UPDATE` | Thread member list changed |
+| Event Name                | Description                      |
+| ------------------------- | -------------------------------- |
+| `READY`                   | Initial state after IDENTIFY     |
+| `RESUMED`                 | Session resumed successfully     |
+| `MESSAGE_CREATE`          | New message                      |
+| `MESSAGE_UPDATE`          | Message edited                   |
+| `MESSAGE_DELETE`          | Message deleted                  |
+| `MESSAGE_REACTION_ADD`    | Reaction added                   |
+| `MESSAGE_REACTION_REMOVE` | Reaction removed                 |
+| `CHANNEL_CREATE`          | Channel created                  |
+| `CHANNEL_UPDATE`          | Channel modified                 |
+| `CHANNEL_DELETE`          | Channel deleted                  |
+| `COMMUNITY_UPDATE`        | Community settings changed       |
+| `MEMBER_JOIN`             | New member                       |
+| `MEMBER_LEAVE`            | Member left                      |
+| `MEMBER_UPDATE`           | Member roles/nickname changed    |
+| `ROLE_CREATE`             | Role created                     |
+| `ROLE_UPDATE`             | Role modified                    |
+| `ROLE_DELETE`             | Role deleted                     |
+| `PRESENCE_UPDATE`         | User presence changed            |
+| `TYPING_START`            | User started typing              |
+| `VOICE_STATE_UPDATE`      | User voice state changed         |
+| `VOICE_SERVER_UPDATE`     | Voice server details             |
+| `INVITE_CREATE`           | Invite created                   |
+| `INVITE_DELETE`           | Invite deleted                   |
+| `THREAD_CREATE`           | Thread started                   |
+| `THREAD_UPDATE`           | Thread modified (archived, etc.) |
+| `THREAD_MEMBERS_UPDATE`   | Thread member list changed       |
 
 ### 13.5 Rate Limits
 
-| Scope | Limit |
-|-------|-------|
+| Scope            | Limit              |
+| ---------------- | ------------------ |
 | Gateway commands | 120 per 60 seconds |
-| IDENTIFY | 1 per 5 seconds |
-| Presence updates | 5 per 60 seconds |
+| IDENTIFY         | 1 per 5 seconds    |
+| Presence updates | 5 per 60 seconds   |
 
 ### 13.6 Channel Subscriptions
 
@@ -1805,11 +1806,11 @@ permission on. Subscriptions allow narrowing this.
 
 ### 14.1 Verification Levels
 
-| Level | Badge | Requirements |
-|-------|-------|-------------|
-| `unverified` | None | Registered with Hub |
-| `verified` | ✓ Blue checkmark | Passed all checks below |
-| `managed` | ✓ Gold badge | Hosted by Voxora |
+| Level        | Badge            | Requirements            |
+| ------------ | ---------------- | ----------------------- |
+| `unverified` | None             | Registered with Hub     |
+| `verified`   | ✓ Blue checkmark | Passed all checks below |
+| `managed`    | ✓ Gold badge     | Hosted by Voxora        |
 
 ### 14.2 Verification Requirements
 
@@ -1866,12 +1867,12 @@ Pod operator must prove control of the Pod's domain via one of:
 
 ### 15.1 Managed Pod Tiers
 
-| Tier | Members | Storage | Voice Slots | Price |
-|------|---------|---------|-------------|-------|
-| Starter | 500 | 10 GB | 25 | $10/mo |
-| Community | 5,000 | 50 GB | 100 | $30/mo |
-| Enterprise | 50,000 | 500 GB | 500 | $100/mo |
-| Custom | Unlimited | Custom | Custom | Contact us |
+| Tier       | Members   | Storage | Voice Slots | Price      |
+| ---------- | --------- | ------- | ----------- | ---------- |
+| Starter    | 500       | 10 GB   | 25          | $10/mo     |
+| Community  | 5,000     | 50 GB   | 100         | $30/mo     |
+| Enterprise | 50,000    | 500 GB  | 500         | $100/mo    |
+| Custom     | Unlimited | Custom  | Custom      | Contact us |
 
 ### 15.2 Managed Pod Features
 
@@ -1917,33 +1918,33 @@ All clients share a core SDK that handles:
 
 ### 16.2 Web Client
 
-| Aspect | Choice |
-|--------|--------|
-| Framework | React (SPA) |
-| State | React Context + Zustand + IndexedDB cache |
-| WebSocket | Native WebSocket API |
-| WebRTC | Native browser APIs |
-| Build | Vite |
-| Deploy | Static hosting + CDN |
+| Aspect    | Choice                                    |
+| --------- | ----------------------------------------- |
+| Framework | React (SPA)                               |
+| State     | React Context + Zustand + IndexedDB cache |
+| WebSocket | Native WebSocket API                      |
+| WebRTC    | Native browser APIs                       |
+| Build     | Vite                                      |
+| Deploy    | Static hosting + CDN                      |
 
 ### 16.3 Desktop Client
 
-| Aspect | Choice |
-|--------|--------|
-| Shell | Electron |
-| Frontend | Same React app |
-| Extras | System tray, global hotkeys, auto-update |
-| Voice | WebRTC via Electron (Chromium) |
-| Notifications | OS-native notifications |
+| Aspect        | Choice                                   |
+| ------------- | ---------------------------------------- |
+| Shell         | Electron                                 |
+| Frontend      | Same React app                           |
+| Extras        | System tray, global hotkeys, auto-update |
+| Voice         | WebRTC via Electron (Chromium)           |
+| Notifications | OS-native notifications                  |
 
 ### 16.4 Mobile Client
 
-| Aspect | Choice |
-|--------|--------|
-| Framework | React Native or Kotlin Multiplatform (TBD) |
-| Push | APNs (iOS), FCM (Android) |
-| Background | Background audio for voice calls |
-| Storage | SQLite for local cache |
+| Aspect     | Choice                                     |
+| ---------- | ------------------------------------------ |
+| Framework  | React Native or Kotlin Multiplatform (TBD) |
+| Push       | APNs (iOS), FCM (Android)                  |
+| Background | Background audio for voice calls           |
+| Storage    | SQLite for local cache                     |
 
 ### 16.5 Push Notifications
 
@@ -2000,6 +2001,7 @@ For DMs and private channels, optional E2EE using:
 - **Scope**: DMs only in MVP. Private channels in future.
 
 E2EE is **not** in MVP scope. When implemented:
+
 - Pod cannot read message content.
 - Search, link previews, and moderation are client-side only for E2EE
   channels.
@@ -2063,44 +2065,44 @@ E2EE is **not** in MVP scope. When implemented:
 
 ### 19.1 Hub Infrastructure
 
-| Component | Technology | Scaling |
-|-----------|-----------|---------|
-| API Server | Rust (Axum) | Horizontal (stateless) |
-| Database | PostgreSQL 16 | Primary-replica, pgBouncer |
-| Cache | Redis 7 (Cluster) | For sessions, rate limits, JWKS cache |
-| Object Storage | S3-compatible | For avatars, media |
-| Queue | NATS JetStream | For async jobs (email, webhooks) |
-| Search | Meilisearch | For Pod discovery |
+| Component      | Technology        | Scaling                               |
+| -------------- | ----------------- | ------------------------------------- |
+| API Server     | Rust (Axum)       | Horizontal (stateless)                |
+| Database       | PostgreSQL 16     | Primary-replica, pgBouncer            |
+| Cache          | Redis 7 (Cluster) | For sessions, rate limits, JWKS cache |
+| Object Storage | S3-compatible     | For avatars, media                    |
+| Queue          | NATS JetStream    | For async jobs (email, webhooks)      |
+| Search         | Meilisearch       | For Pod discovery                     |
 
 ### 19.2 Pod Infrastructure (Reference)
 
-| Component | Technology | Notes |
-|-----------|-----------|-------|
-| API Server | Rust (Axum) | Single binary |
-| Database | PostgreSQL 16 | Embedded or external |
-| Cache | Redis or in-process | Optional for small pods |
-| Gateway | Tokio WebSocket | Built into API server |
-| SFU | mediasoup | Voice/Video |
-| Object Storage | Local FS or S3 | Attachments |
+| Component      | Technology          | Notes                   |
+| -------------- | ------------------- | ----------------------- |
+| API Server     | Rust (Axum)         | Single binary           |
+| Database       | PostgreSQL 16       | Embedded or external    |
+| Cache          | Redis or in-process | Optional for small pods |
+| Gateway        | Tokio WebSocket     | Built into API server   |
+| SFU            | mediasoup           | Voice/Video             |
+| Object Storage | Local FS or S3      | Attachments             |
 
 ### 19.3 Performance Targets
 
-| Metric | Target |
-|--------|--------|
-| Hub API p99 latency | < 100ms |
-| Pod message send p99 | < 150ms |
-| Gateway event delivery p99 | < 50ms |
-| Voice join time | < 2 seconds |
-| SIA validation | < 5ms |
-| Concurrent WS connections per Pod instance | 50,000 |
+| Metric                                     | Target      |
+| ------------------------------------------ | ----------- |
+| Hub API p99 latency                        | < 100ms     |
+| Pod message send p99                       | < 150ms     |
+| Gateway event delivery p99                 | < 50ms      |
+| Voice join time                            | < 2 seconds |
+| SIA validation                             | < 5ms       |
+| Concurrent WS connections per Pod instance | 50,000      |
 
 ### 19.4 Availability
 
-| Service | Target |
-|---------|--------|
-| Hub | 99.9% (8.7h downtime/year) |
-| Managed Pods | 99.9% |
-| TURN | 99.95% |
+| Service      | Target                     |
+| ------------ | -------------------------- |
+| Hub          | 99.9% (8.7h downtime/year) |
+| Managed Pods | 99.9%                      |
+| TURN         | 99.95%                     |
 
 ### 19.5 Monitoring
 
@@ -2181,7 +2183,7 @@ E2EE is **not** in MVP scope. When implemented:
 - [ ] Pod: Advanced RBAC (custom roles, channel overrides)
 - [ ] Pod: Typing indicators
 - [ ] Pod: Presence
-- [ ] Desktop Client: Tauri shell
+- [ ] Desktop Client: Electron shell
 - [ ] Desktop Client: System tray, hotkeys
 - [ ] Desktop Client: Auto-update
 - [ ] Web Client: Voice UI
@@ -2277,4 +2279,4 @@ E2EE is **not** in MVP scope. When implemented:
 
 ---
 
-*End of RFC-0001*
+_End of RFC-0001_

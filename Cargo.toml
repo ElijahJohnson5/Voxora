@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "apps/hub-api",
-  "apps/pod-api"
+  "apps/pod-api",
+  "libs/voxora-common",
 ]
 resolver = "2"
