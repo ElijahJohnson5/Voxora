@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::sia;
-use crate::db::schema::{pods, users};
+use crate::db::schema::{pods, user_pod_bookmarks, users};
 use crate::error::ApiError;
+use crate::models::bookmark::NewUserPodBookmark;
 use crate::models::pod::Pod;
 use crate::models::user::User;
 use crate::AppState;
@@ -61,6 +62,17 @@ async fn issue_sia(
     if pod.status != "active" {
         return Err(ApiError::bad_request("Pod is not active"));
     }
+
+    // Upsert a bookmark so the Hub remembers this user ↔ pod association.
+    diesel::insert_into(user_pod_bookmarks::table)
+        .values(NewUserPodBookmark {
+            user_id: auth.user_id.clone(),
+            pod_id: body.pod_id.clone(),
+        })
+        .on_conflict_do_nothing()
+        .execute(&mut conn)
+        .await
+        .map_err(ApiError::from)?;
 
     // Load the authenticated user's profile.
     let user: User = users::table

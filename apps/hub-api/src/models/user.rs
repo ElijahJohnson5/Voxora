@@ -67,3 +67,27 @@ impl From<User> for UserResponse {
         }
     }
 }
+
+/// Public-facing user profile (excludes email, status, updated_at).
+#[derive(Debug, Serialize)]
+pub struct PublicUserResponse {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub flags: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<User> for PublicUserResponse {
+    fn from(u: User) -> Self {
+        Self {
+            id: u.id,
+            username: u.username,
+            display_name: u.display_name,
+            avatar_url: u.avatar_url,
+            flags: u.flags,
+            created_at: u.created_at,
+        }
+    }
+}

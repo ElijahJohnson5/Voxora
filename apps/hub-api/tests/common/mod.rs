@@ -167,6 +167,14 @@ pub async fn cleanup_test_pod(db: &DbPool, pod_id: &str) {
     use diesel_async::RunQueryDsl;
 
     let mut conn = db.get().await.expect("pool");
+    // Bookmarks reference pods, clean those first.
+    diesel::delete(
+        hub_api::db::schema::user_pod_bookmarks::table
+            .filter(hub_api::db::schema::user_pod_bookmarks::pod_id.eq(pod_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
     diesel::delete(
         hub_api::db::schema::pods::table.filter(hub_api::db::schema::pods::id.eq(pod_id)),
     )
@@ -175,12 +183,19 @@ pub async fn cleanup_test_pod(db: &DbPool, pod_id: &str) {
     .ok();
 }
 
-/// Clean up a test user and their sessions.
+/// Clean up a test user and their sessions/bookmarks.
 pub async fn cleanup_test_user(db: &DbPool, user_id: &str) {
     use diesel::prelude::*;
     use diesel_async::RunQueryDsl;
 
     let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        hub_api::db::schema::user_pod_bookmarks::table
+            .filter(hub_api::db::schema::user_pod_bookmarks::user_id.eq(user_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
     diesel::delete(
         hub_api::db::schema::sessions::table
             .filter(hub_api::db::schema::sessions::user_id.eq(user_id)),
@@ -194,4 +209,20 @@ pub async fn cleanup_test_user(db: &DbPool, user_id: &str) {
     .execute(&mut conn)
     .await
     .ok();
+}
+
+/// Create a bookmark (user ↔ pod association).
+pub async fn create_test_bookmark(db: &DbPool, user_id: &str, pod_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::insert_into(hub_api::db::schema::user_pod_bookmarks::table)
+        .values((
+            hub_api::db::schema::user_pod_bookmarks::user_id.eq(user_id),
+            hub_api::db::schema::user_pod_bookmarks::pod_id.eq(pod_id),
+        ))
+        .execute(&mut conn)
+        .await
+        .expect("insert test bookmark");
 }

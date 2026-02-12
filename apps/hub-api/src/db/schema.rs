@@ -56,11 +56,17 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    user_pod_bookmarks (user_id, pod_id) {
+        user_id -> Text,
+        pod_id -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(pods -> users (owner_id));
+diesel::joinable!(user_pod_bookmarks -> users (user_id));
+diesel::joinable!(user_pod_bookmarks -> pods (pod_id));
 
-diesel::allow_tables_to_appear_in_same_query!(
-    users,
-    sessions,
-    pods,
-);
+diesel::allow_tables_to_appear_in_same_query!(users, sessions, pods, user_pod_bookmarks,);

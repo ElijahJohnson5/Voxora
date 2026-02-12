@@ -1,10 +1,17 @@
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use chrono::Utc;
+use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::db::schema::users;
+use crate::auth::middleware::AuthUser;
+use crate::db::schema::{pods, user_pod_bookmarks, users};
 use crate::error::{ApiError, FieldError};
-use crate::models::user::{NewUser, User, UserResponse};
+use crate::models::pod::{Pod, PodResponse};
+use crate::models::user::{NewUser, PublicUserResponse, User, UserResponse};
 use crate::AppState;
 
 /// POST /api/v1/users — Register a new user.
@@ -17,7 +24,11 @@ pub struct CreateUserRequest {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/users", post(create_user))
+    Router::new()
+        .route("/users", post(create_user))
+        .route("/users/@me", get(get_me).patch(update_me))
+        .route("/users/@me/pods", get(get_my_pods))
+        .route("/users/:user_id", get(get_user))
 }
 
 async fn create_user(
@@ -139,4 +150,157 @@ fn hash_password(password: &str) -> Result<String, ApiError> {
             tracing::error!(?e, "password hashing failed");
             ApiError::internal("Failed to process password")
         })
+}
+
+// =========================================================================
+// GET /api/v1/users/@me — Current authenticated user
+// =========================================================================
+
+/// `GET /api/v1/users/@me` — Return the current user's full profile.
+async fn get_me(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<UserResponse>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let user: User = users::table
+        .find(&auth.user_id)
+        .select(User::as_select())
+        .first(&mut conn)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(UserResponse::from(user)))
+}
+
+// =========================================================================
+// PATCH /api/v1/users/@me — Update own profile
+// =========================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileRequest {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+}
+
+/// `PATCH /api/v1/users/@me` — Update the current user's profile.
+async fn update_me(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(body): Json<UpdateProfileRequest>,
+) -> Result<Json<UserResponse>, ApiError> {
+    // --- Validation ---
+    let mut errors: Vec<FieldError> = Vec::new();
+
+    let display_name = body.display_name.as_ref().map(|n| n.trim().to_string());
+    if let Some(ref name) = display_name {
+        if name.is_empty() || name.len() > 64 {
+            errors.push(FieldError {
+                field: "display_name".into(),
+                message: "Display name must be 1–64 characters".into(),
+            });
+        }
+    }
+
+    let avatar_url = body.avatar_url.as_ref().map(|u| u.trim().to_string());
+    if let Some(ref url) = avatar_url {
+        if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
+            errors.push(FieldError {
+                field: "avatar_url".into(),
+                message: "Avatar URL must start with http:// or https://".into(),
+            });
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(ApiError::validation(errors));
+    }
+
+    // If nothing to update, just return the current user.
+    if display_name.is_none() && avatar_url.is_none() {
+        return get_me(State(state), auth).await;
+    }
+
+    let mut conn = state.db.get().await?;
+    let now = Utc::now();
+
+    // Build update — always set updated_at.
+    let user: User = diesel::update(users::table.find(&auth.user_id))
+        .set((
+            display_name
+                .as_deref()
+                .map(|n| users::display_name.eq(n.to_string())),
+            avatar_url.as_deref().map(|u| {
+                if u.is_empty() {
+                    users::avatar_url.eq(None::<String>)
+                } else {
+                    users::avatar_url.eq(Some(u.to_string()))
+                }
+            }),
+            Some(users::updated_at.eq(now)),
+        ))
+        .returning(users::all_columns)
+        .get_result(&mut conn)
+        .await
+        .map_err(ApiError::from)?;
+
+    tracing::info!(user_id = %user.id, "profile updated");
+
+    Ok(Json(UserResponse::from(user)))
+}
+
+// =========================================================================
+// GET /api/v1/users/{user_id} — Public profile
+// =========================================================================
+
+/// `GET /api/v1/users/{user_id}` — Return a user's public profile.
+async fn get_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<PublicUserResponse>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let user: User = users::table
+        .find(&user_id)
+        .select(User::as_select())
+        .first(&mut conn)
+        .await
+        .optional()
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    Ok(Json(PublicUserResponse::from(user)))
+}
+
+// =========================================================================
+// GET /api/v1/users/@me/pods — List bookmarked pods
+// =========================================================================
+
+#[derive(Debug, Serialize)]
+pub struct MyPodsResponse {
+    pub data: Vec<PodResponse>,
+}
+
+/// `GET /api/v1/users/@me/pods` — List Pods the current user has bookmarked.
+async fn get_my_pods(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<MyPodsResponse>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let bookmarked_pods: Vec<Pod> = user_pod_bookmarks::table
+        .inner_join(pods::table.on(pods::id.eq(user_pod_bookmarks::pod_id)))
+        .filter(user_pod_bookmarks::user_id.eq(&auth.user_id))
+        .filter(pods::status.eq("active"))
+        .order(user_pod_bookmarks::created_at.desc())
+        .select(Pod::as_select())
+        .load(&mut conn)
+        .await
+        .map_err(ApiError::from)?;
+
+    let data: Vec<PodResponse> = bookmarked_pods.into_iter().map(PodResponse::from).collect();
+
+    Ok(Json(MyPodsResponse { data }))
 }
