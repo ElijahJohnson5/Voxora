@@ -31,3 +31,13 @@ pub struct NewRole<'a> {
     pub is_default: bool,
     pub created_at: DateTime<Utc>,
 }
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = roles)]
+pub struct UpdateRole {
+    pub name: Option<String>,
+    pub color: Option<Option<i32>>,
+    pub position: Option<i32>,
+    pub permissions: Option<i64>,
+    pub mentionable: Option<bool>,
+}

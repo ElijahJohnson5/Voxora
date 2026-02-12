@@ -23,7 +23,9 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/communities/:community_id/members/:user_id",
-            axum::routing::delete(remove_member).patch(update_member),
+            get(get_member)
+                .delete(remove_member)
+                .patch(update_member),
         )
 }
 
@@ -86,7 +88,7 @@ async fn list_members(
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/v1/communities/:community_id/members/:user_id
+// GET /api/v1/communities/:community_id/members/:user_id
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +96,29 @@ pub struct MemberPath {
     pub community_id: String,
     pub user_id: String,
 }
+
+async fn get_member(
+    State(state): State<AppState>,
+    Path(path): Path<MemberPath>,
+) -> Result<Json<CommunityMember>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let member: CommunityMember = diesel_async::RunQueryDsl::get_result(
+        community_members::table
+            .find((&path.community_id, &path.user_id))
+            .select(CommunityMember::as_select()),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Member not found"))?;
+
+    Ok(Json(member))
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/v1/communities/:community_id/members/:user_id
+// ---------------------------------------------------------------------------
 
 async fn remove_member(
     AuthUser {

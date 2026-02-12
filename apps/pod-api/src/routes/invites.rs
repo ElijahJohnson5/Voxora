@@ -13,7 +13,7 @@ use scoped_futures::ScopedFutureExt;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{communities, community_members, invites};
+use crate::db::schema::{bans, communities, community_members, invites};
 use crate::error::ApiError;
 use crate::models::community_member::{CommunityMember, NewCommunityMember};
 use crate::models::invite::{Invite, NewInvite};
@@ -235,6 +235,22 @@ async fn accept_invite(
     if existing.is_some() {
         return Err(ApiError::conflict(
             "You are already a member of this community",
+        ));
+    }
+
+    // Check if user is banned.
+    let banned: Option<String> = diesel_async::RunQueryDsl::get_result(
+        bans::table
+            .find((&invite.community_id, &user_id))
+            .select(bans::user_id),
+        &mut conn,
+    )
+    .await
+    .optional()?;
+
+    if banned.is_some() {
+        return Err(ApiError::forbidden(
+            "You are banned from this community",
         ));
     }
 

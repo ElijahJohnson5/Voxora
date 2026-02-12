@@ -118,6 +118,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    bans (community_id, user_id) {
+        community_id -> Text,
+        user_id -> Text,
+        reason -> Nullable<Text>,
+        banned_by -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     audit_log (id) {
         id -> Text,
         community_id -> Text,
@@ -142,6 +152,7 @@ diesel::joinable!(messages -> pod_users (author_id));
 diesel::joinable!(reactions -> pod_users (user_id));
 diesel::joinable!(invites -> communities (community_id));
 diesel::joinable!(invites -> channels (channel_id));
+diesel::joinable!(bans -> communities (community_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     pod_users,
@@ -153,5 +164,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     messages,
     reactions,
     invites,
+    bans,
     audit_log,
 );

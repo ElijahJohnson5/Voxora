@@ -6,18 +6,18 @@ use crate::db::schema::{communities, community_members, roles};
 use crate::error::ApiError;
 use crate::models::community_member::CommunityMember;
 
-// Permission bitflags
+// Permission bitflags (RFC §7.2.2)
 pub const VIEW_CHANNEL: i64 = 1 << 0;
 pub const SEND_MESSAGES: i64 = 1 << 1;
-pub const USE_REACTIONS: i64 = 1 << 2;
-pub const INVITE_MEMBERS: i64 = 1 << 3;
+pub const MANAGE_MESSAGES: i64 = 1 << 3;
 pub const MANAGE_CHANNELS: i64 = 1 << 4;
-pub const MANAGE_ROLES: i64 = 1 << 5;
-pub const MANAGE_COMMUNITY: i64 = 1 << 6;
+pub const MANAGE_COMMUNITY: i64 = 1 << 5;
+pub const MANAGE_ROLES: i64 = 1 << 6;
 pub const KICK_MEMBERS: i64 = 1 << 7;
 pub const BAN_MEMBERS: i64 = 1 << 8;
-pub const MANAGE_MESSAGES: i64 = 1 << 9;
-pub const MENTION_EVERYONE: i64 = 1 << 10;
+pub const INVITE_MEMBERS: i64 = 1 << 9;
+pub const USE_REACTIONS: i64 = 1 << 16;
+pub const MENTION_EVERYONE: i64 = 1 << 19;
 pub const ADMINISTRATOR: i64 = 1 << 31;
 
 pub const DEFAULT_EVERYONE_PERMISSIONS: i64 =
@@ -87,4 +87,44 @@ pub async fn check_permission(
             "You do not have permission to perform this action",
         ))
     }
+}
+
+/// Get the highest role position for a user in a community.
+/// Owners return `i32::MAX` to bypass hierarchy checks.
+pub async fn get_highest_role_position(
+    pool: &DbPool,
+    community_id: &str,
+    user_id: &str,
+) -> Result<i32, ApiError> {
+    if is_owner(pool, community_id, user_id).await? {
+        return Ok(i32::MAX);
+    }
+
+    let mut conn = pool.get().await?;
+
+    // Get member's explicit role IDs.
+    let member_roles: Vec<String> = diesel_async::RunQueryDsl::get_result::<Vec<String>>(
+        community_members::table
+            .find((community_id, user_id))
+            .select(community_members::roles),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .unwrap_or_default();
+
+    if member_roles.is_empty() {
+        return Ok(0); // Only has @everyone (position 0)
+    }
+
+    let max_pos: Option<i32> = diesel_async::RunQueryDsl::get_result(
+        roles::table
+            .filter(roles::community_id.eq(community_id))
+            .filter(roles::id.eq_any(&member_roles))
+            .select(diesel::dsl::max(roles::position)),
+        &mut conn,
+    )
+    .await?;
+
+    Ok(max_pos.unwrap_or(0))
 }
