@@ -4,6 +4,17 @@ use serde::Serialize;
 
 use crate::db::schema::channels;
 
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = channels)]
+pub struct UpdateChannel {
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub position: Option<i32>,
+    pub nsfw: Option<bool>,
+    pub slowmode_seconds: Option<i32>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Queryable, Selectable, Serialize)]
 #[diesel(table_name = channels)]
 pub struct Channel {

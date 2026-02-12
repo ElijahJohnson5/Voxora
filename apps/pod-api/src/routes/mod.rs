@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod channels;
 pub mod communities;
 pub mod health;
 
@@ -11,4 +12,5 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::router())
         .merge(communities::router())
+        .merge(channels::router())
 }
