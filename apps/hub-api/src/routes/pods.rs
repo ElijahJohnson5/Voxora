@@ -18,8 +18,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/pods/register", post(register_pod))
         .route("/pods", get(list_pods))
-        .route("/pods/:pod_id", get(get_pod))
-        .route("/pods/:pod_id/heartbeat", post(heartbeat))
+        .route("/pods/{pod_id}", get(get_pod))
+        .route("/pods/{pod_id}/heartbeat", post(heartbeat))
 }
 
 // =========================================================================

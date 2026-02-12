@@ -19,11 +19,11 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/communities/:community_id/roles",
+            "/communities/{community_id}/roles",
             get(list_roles).post(create_role),
         )
         .route(
-            "/communities/:community_id/roles/:role_id",
+            "/communities/{community_id}/roles/{role_id}",
             axum::routing::patch(update_role).delete(delete_role),
         )
 }
@@ -192,9 +192,7 @@ async fn update_role(
 
     // Look up target role.
     let target: Role = diesel_async::RunQueryDsl::get_result(
-        roles::table
-            .find(&path.role_id)
-            .select(Role::as_select()),
+        roles::table.find(&path.role_id).select(Role::as_select()),
         &mut conn,
     )
     .await
@@ -293,9 +291,7 @@ async fn delete_role(
 
     // Look up target role.
     let target: Role = diesel_async::RunQueryDsl::get_result(
-        roles::table
-            .find(&path.role_id)
-            .select(Role::as_select()),
+        roles::table.find(&path.role_id).select(Role::as_select()),
         &mut conn,
     )
     .await
@@ -318,18 +314,17 @@ async fn delete_role(
     }
 
     // Remove role ID from all community_members.roles arrays that contain it.
-    let members_with_role: Vec<(String, String, Vec<String>)> =
-        diesel_async::RunQueryDsl::load(
-            community_members::table
-                .filter(community_members::community_id.eq(&path.community_id))
-                .select((
-                    community_members::community_id,
-                    community_members::user_id,
-                    community_members::roles,
-                )),
-            &mut conn,
-        )
-        .await?;
+    let members_with_role: Vec<(String, String, Vec<String>)> = diesel_async::RunQueryDsl::load(
+        community_members::table
+            .filter(community_members::community_id.eq(&path.community_id))
+            .select((
+                community_members::community_id,
+                community_members::user_id,
+                community_members::roles,
+            )),
+        &mut conn,
+    )
+    .await?;
 
     for (cid, uid, member_roles) in &members_with_role {
         if member_roles.contains(&path.role_id) {
@@ -348,11 +343,8 @@ async fn delete_role(
     }
 
     // Delete the role.
-    diesel_async::RunQueryDsl::execute(
-        diesel::delete(roles::table.find(&path.role_id)),
-        &mut conn,
-    )
-    .await?;
+    diesel_async::RunQueryDsl::execute(diesel::delete(roles::table.find(&path.role_id)), &mut conn)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

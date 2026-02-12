@@ -23,15 +23,15 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/channels/:channel_id/messages",
+            "/channels/{channel_id}/messages",
             post(send_message).get(list_messages),
         )
         .route(
-            "/channels/:channel_id/messages/:message_id",
+            "/channels/{channel_id}/messages/{message_id}",
             axum::routing::patch(edit_message).delete(delete_message),
         )
         .route(
-            "/channels/:channel_id/messages/:message_id/reactions/:emoji",
+            "/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
             axum::routing::put(add_reaction)
                 .delete(remove_reaction)
                 .get(list_reactions),

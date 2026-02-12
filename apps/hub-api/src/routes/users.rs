@@ -28,7 +28,7 @@ pub fn router() -> Router<AppState> {
         .route("/users", post(create_user))
         .route("/users/@me", get(get_me).patch(update_me))
         .route("/users/@me/pods", get(get_my_pods))
-        .route("/users/:user_id", get(get_user))
+        .route("/users/{user_id}", get(get_user))
 }
 
 async fn create_user(

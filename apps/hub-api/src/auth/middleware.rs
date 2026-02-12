@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
@@ -39,7 +38,6 @@ impl IntoResponse for AuthError {
     }
 }
 
-#[async_trait]
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AuthError;
 

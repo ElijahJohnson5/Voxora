@@ -21,11 +21,11 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/communities/:community_id/channels",
+            "/communities/{community_id}/channels",
             post(create_channel).get(list_channels),
         )
         .route(
-            "/channels/:id",
+            "/channels/{id}",
             get(get_channel)
                 .patch(update_channel)
                 .delete(delete_channel),

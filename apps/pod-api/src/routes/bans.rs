@@ -19,7 +19,7 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new().route(
-        "/communities/:community_id/bans/:user_id",
+        "/communities/{community_id}/bans/{user_id}",
         put(ban_member).delete(unban_member),
     )
 }
@@ -62,9 +62,7 @@ async fn ban_member(
 
     // Cannot ban community owner.
     if permissions::is_owner(&state.db, &path.community_id, &path.user_id).await? {
-        return Err(ApiError::bad_request(
-            "Cannot ban the community owner",
-        ));
+        return Err(ApiError::bad_request("Cannot ban the community owner"));
     }
 
     // Check not already banned.
@@ -106,10 +104,7 @@ async fn ban_member(
 
                 // Remove from community_members if they are a member.
                 let deleted = diesel_async::RunQueryDsl::execute(
-                    diesel::delete(
-                        community_members::table
-                            .find((&community_id, &target_user_id)),
-                    ),
+                    diesel::delete(community_members::table.find((&community_id, &target_user_id))),
                     conn,
                 )
                 .await?;
@@ -155,9 +150,7 @@ async fn unban_member(
     let mut conn = state.db.get().await?;
 
     let deleted = diesel_async::RunQueryDsl::execute(
-        diesel::delete(
-            bans::table.find((&path.community_id, &path.user_id)),
-        ),
+        diesel::delete(bans::table.find((&path.community_id, &path.user_id))),
         &mut conn,
     )
     .await?;

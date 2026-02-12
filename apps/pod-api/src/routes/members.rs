@@ -19,9 +19,9 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/communities/:community_id/members", get(list_members))
+        .route("/communities/{community_id}/members", get(list_members))
         .route(
-            "/communities/:community_id/members/:user_id",
+            "/communities/{community_id}/members/{user_id}",
             get(get_member).delete(remove_member).patch(update_member),
         )
 }

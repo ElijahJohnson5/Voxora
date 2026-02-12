@@ -8,7 +8,7 @@ voxora-common = { path = "../../libs/common" }
 
 argon2 = "0.5"
 async-trait = "0.1"
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "2", features = ["postgres", "chrono"] }
@@ -17,7 +17,7 @@ diesel_migrations = "2"
 dotenvy = "0.15"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 futures-util = { version = "0.3", features = ["alloc"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 password-hash = "0.5"
 rand = "0.8"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
@@ -30,7 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-axum-test = "16"
+axum-test = "18"
 http = "1"
 tower = { version = "0.5", features = ["util"] }
 

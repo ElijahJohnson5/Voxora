@@ -25,14 +25,14 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/communities/:community_id/invites",
+            "/communities/{community_id}/invites",
             post(create_invite).get(list_invites),
         )
         .route(
-            "/communities/:community_id/invites/:code",
+            "/communities/{community_id}/invites/{code}",
             delete(delete_invite),
         )
-        .route("/invites/:code/accept", post(accept_invite))
+        .route("/invites/{code}/accept", post(accept_invite))
 }
 
 // ---------------------------------------------------------------------------

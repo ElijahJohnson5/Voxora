@@ -27,7 +27,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/communities", post(create_community).get(list_communities))
         .route(
-            "/communities/:id",
+            "/communities/{id}",
             get(get_community)
                 .patch(update_community)
                 .delete(delete_community),
