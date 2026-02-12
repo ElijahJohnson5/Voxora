@@ -2,6 +2,7 @@ pub mod auth;
 pub mod channels;
 pub mod communities;
 pub mod health;
+pub mod messages;
 
 use axum::Router;
 
@@ -13,4 +14,5 @@ pub fn router() -> Router<AppState> {
         .merge(auth::router())
         .merge(communities::router())
         .merge(channels::router())
+        .merge(messages::router())
 }

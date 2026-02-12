@@ -10,6 +10,7 @@ use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::AppState;
+use voxora_common::SnowflakeGenerator;
 
 /// Test signing keys (mirrors hub-api's `SigningKeys` derivation from a seed).
 pub struct TestSigningKeys {
@@ -164,11 +165,14 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
     // Pre-load the JWKS client with the test key so it doesn't hit the network.
     let jwks = JwksClient::with_static_key(&signing_keys.kid, signing_keys.decoding.clone());
 
+    let snowflake = Arc::new(SnowflakeGenerator::new(0));
+
     let state = AppState {
         db,
         kv,
         jwks,
         config: Arc::new(config),
+        snowflake,
     };
 
     (state, signing_keys)

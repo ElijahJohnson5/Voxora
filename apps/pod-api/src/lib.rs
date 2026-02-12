@@ -12,6 +12,7 @@ use auth::jwks::JwksClient;
 use config::Config;
 use db::kv::KeyValueStore;
 use db::pool::DbPool;
+use voxora_common::SnowflakeGenerator;
 
 /// Shared application state available to all route handlers.
 #[derive(Clone)]
@@ -20,4 +21,5 @@ pub struct AppState {
     pub kv: Arc<dyn KeyValueStore>,
     pub jwks: JwksClient,
     pub config: Arc<Config>,
+    pub snowflake: Arc<SnowflakeGenerator>,
 }

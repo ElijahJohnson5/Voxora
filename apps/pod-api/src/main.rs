@@ -11,6 +11,7 @@ use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::AppState;
 use std::path::Path;
+use voxora_common::SnowflakeGenerator;
 
 #[tokio::main]
 async fn main() {
@@ -39,11 +40,14 @@ async fn main() {
 
     tracing::info!(pod_id = %config.pod_id, hub_url = %config.hub_url, "pod-api configured");
 
+    let snowflake = Arc::new(SnowflakeGenerator::new(0));
+
     let state = AppState {
         db,
         kv,
         jwks,
         config: Arc::new(config),
+        snowflake,
     };
 
     let cors = CorsLayer::new()
