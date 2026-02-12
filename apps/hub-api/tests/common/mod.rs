@@ -3,12 +3,14 @@ use std::sync::Arc;
 use axum::Router;
 use hub_api::auth::keys::SigningKeys;
 use hub_api::config::Config;
+use hub_api::db::kv::{KeyValueStore, MemoryStore};
 use hub_api::db::pool::DbPool;
 use hub_api::AppState;
 
-/// Build an [`AppState`] connected to the real dev database and Redis.
+/// Build an [`AppState`] connected to the real dev database and an in-memory KV store.
 ///
-/// Reads connection strings from the `.env` file at `CARGO_MANIFEST_DIR`.
+/// Reads the database connection string from the `.env` file at `CARGO_MANIFEST_DIR`.
+/// Uses [`MemoryStore`] instead of Redis so tests don't require a running Redis instance.
 pub async fn test_state() -> AppState {
     // Load .env from the hub-api crate root so tests work from any cwd.
     let env_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
@@ -18,16 +20,13 @@ pub async fn test_state() -> AppState {
     config.database_url = with_test_db_suffix(&config.database_url);
     let db = hub_api::db::pool::connect(&config.database_url).await;
 
-    let redis_client = redis::Client::open(config.redis_url.as_str()).expect("invalid REDIS_URL");
-    let redis = redis::aio::ConnectionManager::new(redis_client)
-        .await
-        .expect("failed to connect to Redis");
+    let kv: Arc<dyn KeyValueStore> = Arc::new(MemoryStore::new());
 
     let keys = Arc::new(SigningKeys::from_seed(&config.signing_key_seed));
 
     AppState {
         db,
-        redis,
+        kv,
         keys,
         config: Arc::new(config),
     }
@@ -114,6 +113,66 @@ pub struct TestUser {
     pub username: String,
     pub email: String,
     pub password: String,
+}
+
+/// Create a test pod owned by the given user. Returns the pod ID.
+pub async fn create_test_pod(db: &DbPool, owner_id: &str) -> String {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let pod_id = voxora_common::id::prefixed_ulid(voxora_common::id::prefix::POD);
+    let suffix: u32 = rand::random();
+    let client_id = format!("pod_client_{suffix}");
+    let client_secret = format!("vxs_{suffix}");
+
+    let mut conn = db.get().await.expect("pool");
+
+    diesel::insert_into(hub_api::db::schema::pods::table)
+        .values((
+            hub_api::db::schema::pods::id.eq(&pod_id),
+            hub_api::db::schema::pods::owner_id.eq(owner_id),
+            hub_api::db::schema::pods::name.eq(format!("Test Pod {suffix}")),
+            hub_api::db::schema::pods::url.eq(format!("http://localhost:9{}", suffix % 1000)),
+            hub_api::db::schema::pods::client_id.eq(&client_id),
+            hub_api::db::schema::pods::client_secret.eq(&client_secret),
+            hub_api::db::schema::pods::status.eq("active"),
+        ))
+        .execute(&mut conn)
+        .await
+        .expect("insert test pod");
+
+    pod_id
+}
+
+/// Store a test access token directly in the KV store (bypasses OIDC flow).
+pub async fn store_test_access_token(
+    kv: &dyn KeyValueStore,
+    user_id: &str,
+    scopes: &[&str],
+) -> String {
+    let token = hub_api::auth::tokens::generate_access_token();
+    let data = hub_api::auth::tokens::AccessTokenData {
+        user_id: user_id.to_string(),
+        scopes: scopes.iter().map(|s| s.to_string()).collect(),
+    };
+    hub_api::auth::tokens::store_access_token(kv, &token, &data)
+        .await
+        .expect("store test token");
+    token
+}
+
+/// Clean up a test pod.
+pub async fn cleanup_test_pod(db: &DbPool, pod_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        hub_api::db::schema::pods::table.filter(hub_api::db::schema::pods::id.eq(pod_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
 }
 
 /// Clean up a test user and their sessions.

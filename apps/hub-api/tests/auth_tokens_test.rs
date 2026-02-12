@@ -1,5 +1,5 @@
 //! Unit + integration tests for `auth::tokens` — opaque token generation,
-//! ID token minting, and Redis-backed storage.
+//! ID token minting, and KV-backed storage.
 
 mod common;
 
@@ -7,7 +7,7 @@ use hub_api::auth::keys::SigningKeys;
 use hub_api::auth::tokens::*;
 
 // ---------------------------------------------------------------------------
-// Pure / unit tests (no Redis needed)
+// Pure / unit tests (no KV needed)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -203,13 +203,13 @@ fn id_token_header_has_kid() {
 }
 
 // ---------------------------------------------------------------------------
-// Redis integration tests (require running Redis)
+// KV integration tests (use in-memory store)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn store_and_lookup_access_token() {
     let state = common::test_state().await;
-    let mut redis = state.redis.clone();
+    let kv = state.kv.as_ref();
 
     let token = generate_access_token();
     let data = AccessTokenData {
@@ -217,23 +217,23 @@ async fn store_and_lookup_access_token() {
         scopes: vec!["openid".to_string(), "profile".to_string()],
     };
 
-    store_access_token(&mut redis, &token, &data).await.unwrap();
-    let found = lookup_access_token(&mut redis, &token).await.unwrap();
+    store_access_token(kv, &token, &data).await.unwrap();
+    let found = lookup_access_token(kv, &token).await.unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.user_id, "usr_test1");
     assert_eq!(found.scopes, vec!["openid", "profile"]);
 
     // Clean up
-    delete_access_token(&mut redis, &token).await.unwrap();
+    delete_access_token(kv, &token).await.unwrap();
 }
 
 #[tokio::test]
 async fn lookup_missing_access_token_returns_none() {
     let state = common::test_state().await;
-    let mut redis = state.redis.clone();
+    let kv = state.kv.as_ref();
 
-    let result = lookup_access_token(&mut redis, "hat_nonexistent")
+    let result = lookup_access_token(kv, "hat_nonexistent")
         .await
         .unwrap();
     assert!(result.is_none());
@@ -242,7 +242,7 @@ async fn lookup_missing_access_token_returns_none() {
 #[tokio::test]
 async fn delete_access_token_removes_it() {
     let state = common::test_state().await;
-    let mut redis = state.redis.clone();
+    let kv = state.kv.as_ref();
 
     let token = generate_access_token();
     let data = AccessTokenData {
@@ -250,17 +250,17 @@ async fn delete_access_token_removes_it() {
         scopes: vec!["openid".to_string()],
     };
 
-    store_access_token(&mut redis, &token, &data).await.unwrap();
-    delete_access_token(&mut redis, &token).await.unwrap();
+    store_access_token(kv, &token, &data).await.unwrap();
+    delete_access_token(kv, &token).await.unwrap();
 
-    let result = lookup_access_token(&mut redis, &token).await.unwrap();
+    let result = lookup_access_token(kv, &token).await.unwrap();
     assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn store_and_consume_auth_code() {
     let state = common::test_state().await;
-    let mut redis = state.redis.clone();
+    let kv = state.kv.as_ref();
 
     let code = generate_opaque_token("hac", 32);
     let data = AuthCodeData {
@@ -272,16 +272,16 @@ async fn store_and_consume_auth_code() {
         nonce: Some("n1".to_string()),
     };
 
-    store_auth_code(&mut redis, &code, &data).await.unwrap();
+    store_auth_code(kv, &code, &data).await.unwrap();
 
     // First consume should succeed
-    let found = consume_auth_code(&mut redis, &code).await.unwrap();
+    let found = consume_auth_code(kv, &code).await.unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.user_id, "usr_code1");
     assert_eq!(found.nonce.as_deref(), Some("n1"));
 
     // Second consume should return None (single-use)
-    let again = consume_auth_code(&mut redis, &code).await.unwrap();
+    let again = consume_auth_code(kv, &code).await.unwrap();
     assert!(again.is_none(), "auth code must be single-use");
 }

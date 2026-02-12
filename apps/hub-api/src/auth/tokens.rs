@@ -4,6 +4,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::keys::SigningKeys;
+use crate::db::kv::KeyValueStore;
 use crate::error::ApiError;
 
 // ---------------------------------------------------------------------------
@@ -122,17 +123,17 @@ pub fn mint_id_token(
 }
 
 // ---------------------------------------------------------------------------
-// Redis helpers for access tokens and auth codes
+// KV helpers for access tokens and auth codes
 // ---------------------------------------------------------------------------
 
-/// Stored alongside an opaque access token in Redis.
+/// Stored alongside an opaque access token.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessTokenData {
     pub user_id: String,
     pub scopes: Vec<String>,
 }
 
-/// Stored alongside an authorization code in Redis.
+/// Stored alongside an authorization code.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthCodeData {
     pub user_id: String,
@@ -146,36 +147,25 @@ pub struct AuthCodeData {
 /// Authorization code TTL in seconds.
 pub const AUTH_CODE_TTL_SECS: u64 = 60;
 
-/// Store an access token in Redis.
+/// Store an access token.
 pub async fn store_access_token(
-    redis: &mut redis::aio::ConnectionManager,
+    kv: &dyn KeyValueStore,
     token: &str,
     data: &AccessTokenData,
 ) -> Result<(), ApiError> {
-    use redis::AsyncCommands;
     let key = format!("hub:at:{}", token);
     let value = serde_json::to_string(data).map_err(|_| ApiError::internal("serialization"))?;
-    redis
-        .set_ex::<_, _, ()>(&key, &value, ACCESS_TOKEN_TTL_SECS as u64)
+    kv.set_ex(&key, &value, ACCESS_TOKEN_TTL_SECS as u64)
         .await
-        .map_err(|e| {
-            tracing::error!(?e, "redis set failed");
-            ApiError::internal("Failed to store token")
-        })
 }
 
-/// Look up an access token in Redis.
+/// Look up an access token.
 pub async fn lookup_access_token(
-    redis: &mut redis::aio::ConnectionManager,
+    kv: &dyn KeyValueStore,
     token: &str,
 ) -> Result<Option<AccessTokenData>, ApiError> {
-    use redis::AsyncCommands;
     let key = format!("hub:at:{}", token);
-    let val: Option<String> = redis.get(&key).await.map_err(|e| {
-        tracing::error!(?e, "redis get failed");
-        ApiError::internal("Token lookup failed")
-    })?;
-    match val {
+    match kv.get(&key).await? {
         Some(v) => {
             let data: AccessTokenData =
                 serde_json::from_str(&v).map_err(|_| ApiError::internal("corrupt token data"))?;
@@ -185,51 +175,36 @@ pub async fn lookup_access_token(
     }
 }
 
-/// Delete an access token from Redis.
+/// Delete an access token.
 pub async fn delete_access_token(
-    redis: &mut redis::aio::ConnectionManager,
+    kv: &dyn KeyValueStore,
     token: &str,
 ) -> Result<(), ApiError> {
-    use redis::AsyncCommands;
     let key = format!("hub:at:{}", token);
-    redis.del::<_, ()>(&key).await.map_err(|e| {
-        tracing::error!(?e, "redis del failed");
-        ApiError::internal("Token revocation failed")
-    })
+    kv.del(&key).await
 }
 
-/// Store an authorization code in Redis with 60s TTL.
+/// Store an authorization code with 60s TTL.
 pub async fn store_auth_code(
-    redis: &mut redis::aio::ConnectionManager,
+    kv: &dyn KeyValueStore,
     code: &str,
     data: &AuthCodeData,
 ) -> Result<(), ApiError> {
-    use redis::AsyncCommands;
     let key = format!("hub:code:{}", code);
     let value = serde_json::to_string(data).map_err(|_| ApiError::internal("serialization"))?;
-    redis
-        .set_ex::<_, _, ()>(&key, &value, AUTH_CODE_TTL_SECS)
-        .await
-        .map_err(|e| {
-            tracing::error!(?e, "redis set failed");
-            ApiError::internal("Failed to store auth code")
-        })
+    kv.set_ex(&key, &value, AUTH_CODE_TTL_SECS).await
 }
 
-/// Consume an authorization code from Redis (single-use).
+/// Consume an authorization code (single-use).
 pub async fn consume_auth_code(
-    redis: &mut redis::aio::ConnectionManager,
+    kv: &dyn KeyValueStore,
     code: &str,
 ) -> Result<Option<AuthCodeData>, ApiError> {
-    use redis::AsyncCommands;
     let key = format!("hub:code:{}", code);
-    let val: Option<String> = redis.get(&key).await.map_err(|e| {
-        tracing::error!(?e, "redis get failed");
-        ApiError::internal("Code lookup failed")
-    })?;
+    let val = kv.get(&key).await?;
     if val.is_some() {
         // Delete immediately — single use.
-        redis.del::<_, ()>(&key).await.ok();
+        let _ = kv.del(&key).await;
     }
     match val {
         Some(v) => {

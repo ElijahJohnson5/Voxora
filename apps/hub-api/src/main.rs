@@ -32,10 +32,13 @@ async fn main() {
 
     // Connect to Redis
     let redis_client = redis::Client::open(config.redis_url.as_str()).expect("invalid REDIS_URL");
-    let redis = redis::aio::ConnectionManager::new(redis_client)
+    let redis_conn = redis::aio::ConnectionManager::new(redis_client)
         .await
         .expect("failed to connect to Redis");
     tracing::info!("redis connected");
+
+    let kv: Arc<dyn hub_api::db::kv::KeyValueStore> =
+        Arc::new(hub_api::db::kv::RedisStore::new(redis_conn));
 
     // Derive Ed25519 signing keys from seed
     let keys = Arc::new(SigningKeys::from_seed(&config.signing_key_seed));
@@ -43,7 +46,7 @@ async fn main() {
 
     let state = AppState {
         db,
-        redis,
+        kv,
         keys,
         config: Arc::new(config),
     };

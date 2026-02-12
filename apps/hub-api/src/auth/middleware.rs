@@ -60,8 +60,8 @@ impl FromRequestParts<AppState> for AuthUser {
             message: "Invalid Authorization header format",
         })?;
 
-        // Look up the access token in Redis.
-        let data = tokens::lookup_access_token(&mut state.redis.clone(), token)
+        // Look up the access token in the KV store.
+        let data = tokens::lookup_access_token(state.kv.as_ref(), token)
             .await
             .map_err(|_| AuthError {
                 message: "Token lookup failed",

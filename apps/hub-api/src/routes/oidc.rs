@@ -215,7 +215,7 @@ async fn authorize_submit(
         nonce: form.nonce.clone(),
     };
 
-    tokens::store_auth_code(&mut state.redis.clone(), &code, &code_data).await?;
+    tokens::store_auth_code(state.kv.as_ref(), &code, &code_data).await?;
 
     // Build redirect URI with code + state.
     let sep = if form.redirect_uri.contains('?') {
@@ -291,7 +291,7 @@ async fn handle_authorization_code(
         .ok_or_else(|| ApiError::bad_request("redirect_uri is required"))?;
 
     // Consume the auth code from Redis.
-    let code_data = tokens::consume_auth_code(&mut state.redis.clone(), code)
+    let code_data = tokens::consume_auth_code(state.kv.as_ref(), code)
         .await?
         .ok_or_else(|| ApiError::bad_request("invalid or expired code"))?;
 
@@ -321,7 +321,7 @@ async fn handle_authorization_code(
         user_id: user.id.clone(),
         scopes: code_data.scopes.clone(),
     };
-    tokens::store_access_token(&mut state.redis.clone(), &access_token, &at_data).await?;
+    tokens::store_access_token(state.kv.as_ref(), &access_token, &at_data).await?;
 
     // Store refresh token in sessions table.
     let session = NewSession {
@@ -430,7 +430,7 @@ async fn handle_refresh_token(
         user_id: user.id.clone(),
         scopes: scopes.clone(),
     };
-    tokens::store_access_token(&mut state.redis.clone(), &access_token, &at_data).await?;
+    tokens::store_access_token(state.kv.as_ref(), &access_token, &at_data).await?;
 
     let scope = scopes.join(" ");
 
@@ -499,7 +499,7 @@ async fn revoke(
 
     match hint {
         "access_token" => {
-            tokens::delete_access_token(&mut state.redis.clone(), &form.token).await?;
+            tokens::delete_access_token(state.kv.as_ref(), &form.token).await?;
         }
         "refresh_token" => {
             let mut conn = state.db.get().await?;
@@ -511,7 +511,7 @@ async fn revoke(
         }
         _ => {
             // Try both.
-            tokens::delete_access_token(&mut state.redis.clone(), &form.token).await?;
+            tokens::delete_access_token(state.kv.as_ref(), &form.token).await?;
             let mut conn = state.db.get().await?;
             diesel::update(sessions::table.filter(sessions::refresh_token.eq(&form.token)))
                 .set(sessions::revoked.eq(true))
