@@ -30,6 +30,14 @@ echo "==> Running hub-api migrations on '${HUB_TEST_DB}'..."
 DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${HUB_TEST_DB}" \
   cargo run -p hub-api --bin migrate 2>&1
 
+echo "==> Running pod-api migrations on '${POD_DB}'..."
+DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${POD_DB}" \
+  cargo run -p pod-api --bin pod-migrate 2>&1
+
+echo "==> Running pod-api migrations on '${POD_TEST_DB}'..."
+DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${POD_TEST_DB}" \
+  cargo run -p pod-api --bin pod-migrate 2>&1
+
 echo ""
 echo "Done! Databases ready:"
 echo "  hub       -> postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${HUB_DB}"
