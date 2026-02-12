@@ -19,12 +19,14 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/api/v1/communities/:community_id/channels",
+            "/communities/:community_id/channels",
             post(create_channel).get(list_channels),
         )
         .route(
-            "/api/v1/channels/:id",
-            get(get_channel).patch(update_channel).delete(delete_channel),
+            "/channels/:id",
+            get(get_channel)
+                .patch(update_channel)
+                .delete(delete_channel),
         )
 }
 
@@ -50,7 +52,9 @@ async fn create_channel(
     // Check community exists.
     let mut conn = state.db.get().await?;
     diesel_async::RunQueryDsl::get_result::<String>(
-        communities::table.find(&community_id).select(communities::id),
+        communities::table
+            .find(&community_id)
+            .select(communities::id),
         &mut conn,
     )
     .await
@@ -58,8 +62,13 @@ async fn create_channel(
     .ok_or_else(|| ApiError::not_found("Community not found"))?;
 
     // Check permission.
-    permissions::check_permission(&state.db, &community_id, &user_id, permissions::MANAGE_CHANNELS)
-        .await?;
+    permissions::check_permission(
+        &state.db,
+        &community_id,
+        &user_id,
+        permissions::MANAGE_CHANNELS,
+    )
+    .await?;
 
     // Validate name.
     let name = body.name.trim().to_string();
@@ -83,20 +92,21 @@ async fn create_channel(
     let channel_id = voxora_common::id::prefixed_ulid(voxora_common::id::prefix::CHANNEL);
 
     let channel: Channel = diesel_async::RunQueryDsl::get_result(
-        diesel::insert_into(channels::table).values(NewChannel {
-            id: &channel_id,
-            community_id: &community_id,
-            parent_id: None,
-            name: &name,
-            topic: body.topic.as_deref(),
-            type_: 0,
-            position: body.position.unwrap_or(0),
-            slowmode_seconds: body.slowmode_seconds.unwrap_or(0),
-            nsfw: body.nsfw.unwrap_or(false),
-            created_at: now,
-            updated_at: now,
-        })
-        .returning(Channel::as_returning()),
+        diesel::insert_into(channels::table)
+            .values(NewChannel {
+                id: &channel_id,
+                community_id: &community_id,
+                parent_id: None,
+                name: &name,
+                topic: body.topic.as_deref(),
+                type_: 0,
+                position: body.position.unwrap_or(0),
+                slowmode_seconds: body.slowmode_seconds.unwrap_or(0),
+                nsfw: body.nsfw.unwrap_or(false),
+                created_at: now,
+                updated_at: now,
+            })
+            .returning(Channel::as_returning()),
         &mut conn,
     )
     .await?;
@@ -115,7 +125,9 @@ async fn list_channels(
     // Check community exists.
     let mut conn = state.db.get().await?;
     diesel_async::RunQueryDsl::get_result::<String>(
-        communities::table.find(&community_id).select(communities::id),
+        communities::table
+            .find(&community_id)
+            .select(communities::id),
         &mut conn,
     )
     .await
@@ -272,16 +284,11 @@ async fn delete_channel(
     .await?;
 
     if default_channel.as_deref() == Some(&id) {
-        return Err(ApiError::bad_request(
-            "Cannot delete the default channel",
-        ));
+        return Err(ApiError::bad_request("Cannot delete the default channel"));
     }
 
-    diesel_async::RunQueryDsl::execute(
-        diesel::delete(channels::table.find(&id)),
-        &mut conn,
-    )
-    .await?;
+    diesel_async::RunQueryDsl::execute(diesel::delete(channels::table.find(&id)), &mut conn)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

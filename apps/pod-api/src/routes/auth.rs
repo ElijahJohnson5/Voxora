@@ -12,8 +12,8 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/auth/login", post(login))
-        .route("/api/v1/auth/refresh", post(refresh))
+        .route("/auth/login", post(login))
+        .route("/auth/refresh", post(refresh))
 }
 
 // ---------------------------------------------------------------------------
@@ -79,17 +79,28 @@ async fn login(
 
     let kv = state.kv.as_ref();
 
-    tokens::store_pat(kv, &pat, &tokens::PatData { user_id: user.id.clone() }).await?;
+    tokens::store_pat(
+        kv,
+        &pat,
+        &tokens::PatData {
+            user_id: user.id.clone(),
+        },
+    )
+    .await?;
     tokens::store_refresh_token(
         kv,
         &refresh,
-        &tokens::RefreshData { user_id: user.id.clone() },
+        &tokens::RefreshData {
+            user_id: user.id.clone(),
+        },
     )
     .await?;
     tokens::store_ws_ticket(
         kv,
         &ws_ticket,
-        &tokens::WsTicketData { user_id: user.id.clone() },
+        &tokens::WsTicketData {
+            user_id: user.id.clone(),
+        },
     )
     .await?;
 
@@ -156,11 +167,20 @@ async fn refresh(
     let new_pat = tokens::generate_pat();
     let new_refresh = tokens::generate_refresh_token();
 
-    tokens::store_pat(kv, &new_pat, &tokens::PatData { user_id: data.user_id.clone() }).await?;
+    tokens::store_pat(
+        kv,
+        &new_pat,
+        &tokens::PatData {
+            user_id: data.user_id.clone(),
+        },
+    )
+    .await?;
     tokens::store_refresh_token(
         kv,
         &new_refresh,
-        &tokens::RefreshData { user_id: data.user_id },
+        &tokens::RefreshData {
+            user_id: data.user_id,
+        },
     )
     .await?;
 

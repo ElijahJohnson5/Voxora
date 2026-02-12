@@ -9,10 +9,11 @@ use axum::Router;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .merge(health::router())
-        .merge(auth::router())
-        .merge(communities::router())
-        .merge(channels::router())
-        .merge(messages::router())
+    Router::new().merge(health::router()).nest(
+        "/api/v1",
+        auth::router()
+            .merge(communities::router())
+            .merge(channels::router())
+            .merge(messages::router()),
+    )
 }

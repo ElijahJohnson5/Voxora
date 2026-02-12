@@ -10,22 +10,29 @@ use diesel::result::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{channels, messages};
+use crate::db::schema::{channels, messages, reactions};
 use crate::error::{ApiError, FieldError};
 use crate::models::channel::Channel;
 use crate::models::message::{Message, NewMessage, UpdateMessage};
+use crate::models::reaction::{NewReaction, Reaction};
 use crate::permissions;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/api/v1/channels/:channel_id/messages",
+            "/channels/:channel_id/messages",
             post(send_message).get(list_messages),
         )
         .route(
-            "/api/v1/channels/:channel_id/messages/:message_id",
+            "/channels/:channel_id/messages/:message_id",
             axum::routing::patch(edit_message).delete(delete_message),
+        )
+        .route(
+            "/channels/:channel_id/messages/:message_id/reactions/:emoji",
+            axum::routing::put(add_reaction)
+                .delete(remove_reaction)
+                .get(list_reactions),
         )
 }
 
@@ -112,18 +119,19 @@ async fn send_message(
     let now = Utc::now();
 
     let message: Message = diesel_async::RunQueryDsl::get_result(
-        diesel::insert_into(messages::table).values(NewMessage {
-            id,
-            channel_id: &channel_id,
-            author_id: &user_id,
-            content: Some(content),
-            type_: 0,
-            flags: 0,
-            reply_to: body.reply_to,
-            pinned: false,
-            created_at: now,
-        })
-        .returning(Message::as_returning()),
+        diesel::insert_into(messages::table)
+            .values(NewMessage {
+                id,
+                channel_id: &channel_id,
+                author_id: &user_id,
+                content: Some(content),
+                type_: 0,
+                flags: 0,
+                reply_to: body.reply_to,
+                pinned: false,
+                created_at: now,
+            })
+            .returning(Message::as_returning()),
         &mut conn,
     )
     .await?;
@@ -158,9 +166,7 @@ async fn list_messages(
 
     // Check channel exists.
     diesel_async::RunQueryDsl::get_result::<String>(
-        channels::table
-            .find(&channel_id)
-            .select(channels::id),
+        channels::table.find(&channel_id).select(channels::id),
         &mut conn,
     )
     .await
@@ -281,9 +287,7 @@ async fn edit_message(
 
     // Only the author can edit.
     if message.author_id != user_id {
-        return Err(ApiError::forbidden(
-            "You can only edit your own messages",
-        ));
+        return Err(ApiError::forbidden("You can only edit your own messages"));
     }
 
     // Validate content.
@@ -378,4 +382,194 @@ async fn delete_message(
     .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// Reactions
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ReactionPath {
+    pub channel_id: String,
+    pub message_id: i64,
+    pub emoji: String,
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
+// ---------------------------------------------------------------------------
+
+async fn add_reaction(
+    AuthUser { user_id }: AuthUser,
+    State(state): State<AppState>,
+    Path(path): Path<ReactionPath>,
+) -> Result<Json<Reaction>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    // Verify message exists in this channel.
+    let message_id: i64 = diesel_async::RunQueryDsl::get_result(
+        messages::table
+            .filter(messages::id.eq(path.message_id))
+            .filter(messages::channel_id.eq(&path.channel_id))
+            .select(messages::id),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Message not found"))?;
+
+    // Look up channel to get community_id.
+    let channel: Channel = diesel_async::RunQueryDsl::get_result(
+        channels::table
+            .find(&path.channel_id)
+            .select(Channel::as_select()),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Channel not found"))?;
+
+    // Check USE_REACTIONS permission.
+    permissions::check_permission(
+        &state.db,
+        &channel.community_id,
+        &user_id,
+        permissions::USE_REACTIONS,
+    )
+    .await?;
+
+    // Validate emoji.
+    if path.emoji.is_empty() || path.emoji.len() > 32 {
+        return Err(ApiError::bad_request(
+            "Emoji must be between 1 and 32 characters",
+        ));
+    }
+
+    // Check max 20 unique emoji per message.
+    let distinct_count: i64 = diesel_async::RunQueryDsl::get_result(
+        reactions::table
+            .filter(reactions::message_id.eq(message_id))
+            .select(diesel::dsl::count_distinct(reactions::emoji)),
+        &mut conn,
+    )
+    .await?;
+
+    if distinct_count >= 20 {
+        // Check if this emoji already exists on the message.
+        let emoji_exists: Option<String> = diesel_async::RunQueryDsl::get_result(
+            reactions::table
+                .filter(reactions::message_id.eq(message_id))
+                .filter(reactions::emoji.eq(&path.emoji))
+                .select(reactions::emoji),
+            &mut conn,
+        )
+        .await
+        .optional()?;
+
+        if emoji_exists.is_none() {
+            return Err(ApiError::bad_request(
+                "Maximum of 20 unique emoji reactions per message",
+            ));
+        }
+    }
+
+    // Insert (idempotent via ON CONFLICT DO NOTHING).
+    let now = Utc::now();
+    diesel_async::RunQueryDsl::execute(
+        diesel::insert_into(reactions::table)
+            .values(NewReaction {
+                message_id,
+                user_id: &user_id,
+                emoji: &path.emoji,
+                created_at: now,
+            })
+            .on_conflict_do_nothing(),
+        &mut conn,
+    )
+    .await?;
+
+    // Fetch the row (may have been previously inserted with a different created_at).
+    let reaction: Reaction = diesel_async::RunQueryDsl::get_result(
+        reactions::table
+            .filter(reactions::message_id.eq(message_id))
+            .filter(reactions::user_id.eq(&user_id))
+            .filter(reactions::emoji.eq(&path.emoji))
+            .select(Reaction::as_select()),
+        &mut conn,
+    )
+    .await?;
+
+    Ok(Json(reaction))
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
+// ---------------------------------------------------------------------------
+
+async fn remove_reaction(
+    AuthUser { user_id }: AuthUser,
+    State(state): State<AppState>,
+    Path(path): Path<ReactionPath>,
+) -> Result<StatusCode, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    // Verify message exists in this channel.
+    diesel_async::RunQueryDsl::get_result::<i64>(
+        messages::table
+            .filter(messages::id.eq(path.message_id))
+            .filter(messages::channel_id.eq(&path.channel_id))
+            .select(messages::id),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Message not found"))?;
+
+    // Delete the reaction (no error if absent).
+    diesel_async::RunQueryDsl::execute(
+        diesel::delete(
+            reactions::table
+                .filter(reactions::message_id.eq(path.message_id))
+                .filter(reactions::user_id.eq(&user_id))
+                .filter(reactions::emoji.eq(&path.emoji)),
+        ),
+        &mut conn,
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
+// ---------------------------------------------------------------------------
+
+async fn list_reactions(
+    State(state): State<AppState>,
+    Path(path): Path<ReactionPath>,
+) -> Result<Json<Vec<Reaction>>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    // Verify message exists in this channel.
+    diesel_async::RunQueryDsl::get_result::<i64>(
+        messages::table
+            .filter(messages::id.eq(path.message_id))
+            .filter(messages::channel_id.eq(&path.channel_id))
+            .select(messages::id),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Message not found"))?;
+
+    let results: Vec<Reaction> = diesel_async::RunQueryDsl::load(
+        reactions::table
+            .filter(reactions::message_id.eq(path.message_id))
+            .filter(reactions::emoji.eq(&path.emoji))
+            .select(Reaction::as_select()),
+        &mut conn,
+    )
+    .await?;
+
+    Ok(Json(results))
 }

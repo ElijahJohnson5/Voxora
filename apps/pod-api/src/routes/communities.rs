@@ -23,12 +23,9 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/communities", post(create_community).get(list_communities))
         .route(
-            "/api/v1/communities",
-            post(create_community).get(list_communities),
-        )
-        .route(
-            "/api/v1/communities/:id",
+            "/communities/:id",
             get(get_community)
                 .patch(update_community)
                 .delete(delete_community),
@@ -180,9 +177,7 @@ async fn create_community(
 // GET /api/v1/communities
 // ---------------------------------------------------------------------------
 
-async fn list_communities(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Community>>, ApiError> {
+async fn list_communities(State(state): State<AppState>) -> Result<Json<Vec<Community>>, ApiError> {
     let mut conn = state.db.get().await?;
 
     let list: Vec<Community> = diesel_async::RunQueryDsl::load(
@@ -316,11 +311,9 @@ async fn delete_community(
 
     let mut conn = state.db.get().await?;
 
-    let deleted = diesel_async::RunQueryDsl::execute(
-        diesel::delete(communities::table.find(&id)),
-        &mut conn,
-    )
-    .await?;
+    let deleted =
+        diesel_async::RunQueryDsl::execute(diesel::delete(communities::table.find(&id)), &mut conn)
+            .await?;
 
     if deleted == 0 {
         return Err(ApiError::not_found("Community not found"));
