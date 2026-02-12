@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 
 use axum::Router;
@@ -9,8 +10,12 @@ use sha2::{Digest, Sha256};
 use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
+use pod_api::gateway::fanout::GatewayBroadcast;
 use pod_api::AppState;
 use voxora_common::SnowflakeGenerator;
+
+/// Monotonic counter so every `test_state()` call gets a unique worker_id (0–1023).
+static NEXT_WORKER_ID: AtomicU16 = AtomicU16::new(0);
 
 /// Test signing keys (mirrors hub-api's `SigningKeys` derivation from a seed).
 pub struct TestSigningKeys {
@@ -165,7 +170,11 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
     // Pre-load the JWKS client with the test key so it doesn't hit the network.
     let jwks = JwksClient::with_static_key(&signing_keys.kid, signing_keys.decoding.clone());
 
-    let snowflake = Arc::new(SnowflakeGenerator::new(0));
+    // Each test_state() gets a unique worker_id (mod 1024) so parallel tests
+    // never collide on snowflake IDs within the same millisecond.
+    let worker_id = NEXT_WORKER_ID.fetch_add(1, Ordering::Relaxed) % 1024;
+    let snowflake = Arc::new(SnowflakeGenerator::new(worker_id));
+    let broadcast = Arc::new(GatewayBroadcast::new());
 
     let state = AppState {
         db,
@@ -173,6 +182,7 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
         jwks,
         config: Arc::new(config),
         snowflake,
+        broadcast,
     };
 
     (state, signing_keys)
@@ -244,7 +254,14 @@ pub async fn login_test_user(
     user_id: &str,
     username: &str,
 ) -> String {
-    let sia = mint_test_sia(keys, &config.hub_url, user_id, &config.pod_id, username, username);
+    let sia = mint_test_sia(
+        keys,
+        &config.hub_url,
+        user_id,
+        &config.pod_id,
+        username,
+        username,
+    );
     let resp = server
         .post("/api/v1/auth/login")
         .json(&serde_json::json!({ "sia": sia }))

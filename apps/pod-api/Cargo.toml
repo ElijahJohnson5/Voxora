@@ -7,7 +7,7 @@ edition = "2021"
 voxora-common = { path = "../../libs/common" }
 
 async-trait = "0.1"
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "2", features = ["postgres", "chrono"] }
@@ -29,8 +29,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [dev-dependencies]
 axum-test = "16"
 ed25519-dalek = "2"
+futures-util = "0.3"
 http = "1"
 sha2 = "0.10"
+tokio-tungstenite = "0.24"
 tower = { version = "0.5", features = ["util"] }
 
 [[bin]]

@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, messages, reactions};
 use crate::error::{ApiError, FieldError};
+use crate::gateway::events::EventName;
+use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::Channel;
 use crate::models::message::{Message, NewMessage, UpdateMessage};
 use crate::models::reaction::{NewReaction, Reaction};
@@ -135,6 +137,12 @@ async fn send_message(
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel.community_id.clone(),
+        event_name: EventName::MESSAGE_CREATE.to_string(),
+        data: serde_json::to_value(&message).unwrap(),
+    });
 
     Ok((StatusCode::CREATED, Json(message)))
 }
@@ -324,6 +332,23 @@ async fn edit_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
+    // Look up channel to get community_id for broadcast.
+    let channel: Channel = diesel_async::RunQueryDsl::get_result(
+        channels::table
+            .find(&path.channel_id)
+            .select(Channel::as_select()),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Channel not found"))?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel.community_id,
+        event_name: EventName::MESSAGE_UPDATE.to_string(),
+        data: serde_json::to_value(&updated).unwrap(),
+    });
+
     Ok(Json(updated))
 }
 
@@ -371,6 +396,17 @@ async fn delete_message(
         .await?;
     }
 
+    // Look up channel community_id for broadcast.
+    let channel_community_id: String = diesel_async::RunQueryDsl::get_result(
+        channels::table
+            .find(&path.channel_id)
+            .select(channels::community_id),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Channel not found"))?;
+
     diesel_async::RunQueryDsl::execute(
         diesel::delete(
             messages::table
@@ -380,6 +416,15 @@ async fn delete_message(
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel_community_id,
+        event_name: EventName::MESSAGE_DELETE.to_string(),
+        data: serde_json::json!({
+            "id": path.message_id,
+            "channel_id": path.channel_id,
+        }),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -499,6 +544,12 @@ async fn add_reaction(
     )
     .await?;
 
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel.community_id,
+        event_name: EventName::MESSAGE_REACTION_ADD.to_string(),
+        data: serde_json::to_value(&reaction).unwrap(),
+    });
+
     Ok(Json(reaction))
 }
 
@@ -525,6 +576,17 @@ async fn remove_reaction(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
+    // Look up channel community_id for broadcast.
+    let channel_community_id: String = diesel_async::RunQueryDsl::get_result(
+        channels::table
+            .find(&path.channel_id)
+            .select(channels::community_id),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Channel not found"))?;
+
     // Delete the reaction (no error if absent).
     diesel_async::RunQueryDsl::execute(
         diesel::delete(
@@ -536,6 +598,17 @@ async fn remove_reaction(
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel_community_id,
+        event_name: EventName::MESSAGE_REACTION_REMOVE.to_string(),
+        data: serde_json::json!({
+            "message_id": path.message_id,
+            "user_id": user_id,
+            "emoji": path.emoji,
+            "channel_id": path.channel_id,
+        }),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

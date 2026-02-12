@@ -14,6 +14,8 @@ use serde::Deserialize;
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, communities, community_members, roles};
 use crate::error::{ApiError, FieldError};
+use crate::gateway::events::EventName;
+use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::{Channel, NewChannel};
 use crate::models::community::{Community, CommunityResponse, NewCommunity, UpdateCommunity};
 use crate::models::community_member::NewCommunityMember;
@@ -289,6 +291,12 @@ async fn update_community(
     .await
     .optional()?
     .ok_or_else(|| ApiError::not_found("Community not found"))?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: id,
+        event_name: EventName::COMMUNITY_UPDATE.to_string(),
+        data: serde_json::to_value(&community).unwrap(),
+    });
 
     Ok(Json(community))
 }

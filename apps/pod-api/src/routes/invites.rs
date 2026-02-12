@@ -15,6 +15,8 @@ use serde::Deserialize;
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{bans, communities, community_members, invites};
 use crate::error::ApiError;
+use crate::gateway::events::EventName;
+use crate::gateway::fanout::BroadcastPayload;
 use crate::models::community_member::{CommunityMember, NewCommunityMember};
 use crate::models::invite::{Invite, NewInvite};
 use crate::permissions;
@@ -249,9 +251,7 @@ async fn accept_invite(
     .optional()?;
 
     if banned.is_some() {
-        return Err(ApiError::forbidden(
-            "You are banned from this community",
-        ));
+        return Err(ApiError::forbidden("You are banned from this community"));
     }
 
     // Transaction: insert member + increment use_count + increment member_count.
@@ -294,6 +294,12 @@ async fn accept_invite(
             .scope_boxed()
         })
         .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: invite.community_id,
+        event_name: EventName::MEMBER_JOIN.to_string(),
+        data: serde_json::to_value(&member).unwrap(),
+    });
 
     Ok((StatusCode::CREATED, Json(member)))
 }

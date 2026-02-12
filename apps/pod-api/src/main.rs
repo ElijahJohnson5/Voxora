@@ -9,6 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
+use pod_api::gateway::fanout::GatewayBroadcast;
 use pod_api::AppState;
 use std::path::Path;
 use voxora_common::SnowflakeGenerator;
@@ -41,6 +42,7 @@ async fn main() {
     tracing::info!(pod_id = %config.pod_id, hub_url = %config.hub_url, "pod-api configured");
 
     let snowflake = Arc::new(SnowflakeGenerator::new(0));
+    let broadcast = Arc::new(GatewayBroadcast::new());
 
     let state = AppState {
         db,
@@ -48,6 +50,7 @@ async fn main() {
         jwks,
         config: Arc::new(config),
         snowflake,
+        broadcast,
     };
 
     let cors = CorsLayer::new()

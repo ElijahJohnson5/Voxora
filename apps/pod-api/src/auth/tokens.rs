@@ -45,10 +45,7 @@ pub async fn store_pat(
     kv.set_ex(&key, &value, PAT_TTL_SECS).await
 }
 
-pub async fn lookup_pat(
-    kv: &dyn KeyValueStore,
-    token: &str,
-) -> Result<Option<PatData>, ApiError> {
+pub async fn lookup_pat(kv: &dyn KeyValueStore, token: &str) -> Result<Option<PatData>, ApiError> {
     let key = format!("pod:pat:{}", token);
     match kv.get(&key).await? {
         Some(v) => {
@@ -131,4 +128,24 @@ pub async fn store_ws_ticket(
     let key = format!("pod:wst:{}", ticket);
     let value = serde_json::to_string(data).map_err(|_| ApiError::internal("serialization"))?;
     kv.set_ex(&key, &value, WS_TICKET_TTL_SECS).await
+}
+
+/// Consume a WS ticket (single-use: get + delete).
+pub async fn consume_ws_ticket(
+    kv: &dyn KeyValueStore,
+    ticket: &str,
+) -> Result<Option<WsTicketData>, ApiError> {
+    let key = format!("pod:wst:{}", ticket);
+    let val = kv.get(&key).await?;
+    if val.is_some() {
+        let _ = kv.del(&key).await;
+    }
+    match val {
+        Some(v) => {
+            let data: WsTicketData =
+                serde_json::from_str(&v).map_err(|_| ApiError::internal("corrupt ticket data"))?;
+            Ok(Some(data))
+        }
+        None => Ok(None),
+    }
 }

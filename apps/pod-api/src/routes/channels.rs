@@ -12,6 +12,8 @@ use serde::Deserialize;
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, communities};
 use crate::error::{ApiError, FieldError};
+use crate::gateway::events::EventName;
+use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::{Channel, NewChannel, UpdateChannel};
 use crate::permissions;
 use crate::AppState;
@@ -110,6 +112,12 @@ async fn create_channel(
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: community_id.clone(),
+        event_name: EventName::CHANNEL_CREATE.to_string(),
+        data: serde_json::to_value(&channel).unwrap(),
+    });
 
     Ok((StatusCode::CREATED, Json(channel)))
 }
@@ -242,6 +250,12 @@ async fn update_channel(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel.community_id.clone(),
+        event_name: EventName::CHANNEL_UPDATE.to_string(),
+        data: serde_json::to_value(&updated).unwrap(),
+    });
+
     Ok(Json(updated))
 }
 
@@ -289,6 +303,14 @@ async fn delete_channel(
 
     diesel_async::RunQueryDsl::execute(diesel::delete(channels::table.find(&id)), &mut conn)
         .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: channel.community_id,
+        event_name: EventName::CHANNEL_DELETE.to_string(),
+        data: serde_json::json!({
+            "id": id,
+        }),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

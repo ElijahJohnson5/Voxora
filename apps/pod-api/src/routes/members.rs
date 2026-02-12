@@ -11,21 +11,18 @@ use serde::{Deserialize, Serialize};
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{communities, community_members};
 use crate::error::ApiError;
+use crate::gateway::events::EventName;
+use crate::gateway::fanout::BroadcastPayload;
 use crate::models::community_member::CommunityMember;
 use crate::permissions;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/communities/:community_id/members",
-            get(list_members),
-        )
+        .route("/communities/:community_id/members", get(list_members))
         .route(
             "/communities/:community_id/members/:user_id",
-            get(get_member)
-                .delete(remove_member)
-                .patch(update_member),
+            get(get_member).delete(remove_member).patch(update_member),
         )
 }
 
@@ -129,9 +126,7 @@ async fn remove_member(
 ) -> Result<StatusCode, ApiError> {
     // Check if target is owner.
     if permissions::is_owner(&state.db, &path.community_id, &path.user_id).await? {
-        return Err(ApiError::bad_request(
-            "Owner cannot leave or be removed",
-        ));
+        return Err(ApiError::bad_request("Owner cannot leave or be removed"));
     }
 
     // If not self-remove, check KICK_MEMBERS permission.
@@ -148,9 +143,7 @@ async fn remove_member(
     let mut conn = state.db.get().await?;
 
     let deleted = diesel_async::RunQueryDsl::execute(
-        diesel::delete(
-            community_members::table.find((&path.community_id, &path.user_id)),
-        ),
+        diesel::delete(community_members::table.find((&path.community_id, &path.user_id))),
         &mut conn,
     )
     .await?;
@@ -166,6 +159,14 @@ async fn remove_member(
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: path.community_id,
+        event_name: EventName::MEMBER_LEAVE.to_string(),
+        data: serde_json::json!({
+            "user_id": path.user_id,
+        }),
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -205,9 +206,7 @@ async fn update_member(
 
     if is_self {
         if body.roles.is_some() {
-            return Err(ApiError::forbidden(
-                "You cannot change your own roles",
-            ));
+            return Err(ApiError::forbidden("You cannot change your own roles"));
         }
     } else {
         permissions::check_permission(
@@ -243,17 +242,21 @@ async fn update_member(
     };
 
     let updated: CommunityMember = diesel_async::RunQueryDsl::get_result(
-        diesel::update(
-            community_members::table.find((&path.community_id, &path.user_id)),
-        )
-        .set((
-            community_members::nickname.eq(&updated_nickname),
-            community_members::roles.eq(&updated_roles),
-        ))
-        .returning(CommunityMember::as_returning()),
+        diesel::update(community_members::table.find((&path.community_id, &path.user_id)))
+            .set((
+                community_members::nickname.eq(&updated_nickname),
+                community_members::roles.eq(&updated_roles),
+            ))
+            .returning(CommunityMember::as_returning()),
         &mut conn,
     )
     .await?;
+
+    state.broadcast.dispatch(BroadcastPayload {
+        community_id: path.community_id,
+        event_name: EventName::MEMBER_UPDATE.to_string(),
+        data: serde_json::to_value(&updated).unwrap(),
+    });
 
     Ok(Json(updated))
 }
