@@ -6,7 +6,9 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
+use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::AppState;
 use std::path::Path;
 
@@ -26,13 +28,21 @@ async fn main() {
     let config = Config::from_env();
     let port = config.port;
 
-    // Connect to PostgreSQL
+    // Connect to PostgreSQL.
     let db = pod_api::db::pool::connect(&config.database_url).await;
+
+    // In-memory KV store for Phase 1. Replace with RedisStore when Redis is added.
+    let kv: Arc<dyn KeyValueStore> = Arc::new(MemoryStore::new());
+
+    // JWKS client for validating Hub SIA tokens.
+    let jwks = JwksClient::new(&config.hub_url);
 
     tracing::info!(pod_id = %config.pod_id, hub_url = %config.hub_url, "pod-api configured");
 
     let state = AppState {
         db,
+        kv,
+        jwks,
         config: Arc::new(config),
     };
 
