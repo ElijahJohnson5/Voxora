@@ -3,6 +3,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod models;
+pub mod permissions;
 pub mod routes;
 
 use std::sync::Arc;

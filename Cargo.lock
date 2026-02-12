@@ -1584,6 +1584,7 @@ dependencies = [
  "jsonwebtoken",
  "rand 0.8.5",
  "reqwest",
+ "scoped-futures",
  "serde",
  "serde_json",
  "sha2",

@@ -216,3 +216,38 @@ pub async fn cleanup_test_user(db: &pod_api::db::pool::DbPool, user_id: &str) {
     .await
     .ok();
 }
+
+/// Clean up a test community (CASCADE handles roles, channels, members).
+pub async fn cleanup_community(db: &pod_api::db::pool::DbPool, community_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        pod_api::db::schema::communities::table
+            .filter(pod_api::db::schema::communities::id.eq(community_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+}
+
+/// Login a test user and return their access token (PAT).
+pub async fn login_test_user(
+    server: &axum_test::TestServer,
+    keys: &TestSigningKeys,
+    config: &pod_api::config::Config,
+    user_id: &str,
+    username: &str,
+) -> String {
+    let sia = mint_test_sia(keys, &config.hub_url, user_id, &config.pod_id, username, username);
+    let resp = server
+        .post("/api/v1/auth/login")
+        .json(&serde_json::json!({ "sia": sia }))
+        .await;
+    resp.assert_status_ok();
+    resp.json::<serde_json::Value>()["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
