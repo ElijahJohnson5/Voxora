@@ -2,6 +2,6 @@
 members = [
   "apps/hub-api",
   "apps/pod-api",
-  "libs/voxora-common",
+  "libs/common",
 ]
 resolver = "2"

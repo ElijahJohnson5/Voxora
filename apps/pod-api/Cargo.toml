@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-voxora-common = { path = "../../libs/voxora-common" }
+voxora-common = { path = "../../libs/common" }
 
 async-trait = "0.1"
 axum = { version = "0.7", features = ["macros"] }
