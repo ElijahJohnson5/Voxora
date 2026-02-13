@@ -31,6 +31,7 @@ pub struct Channel {
     pub nsfw: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub message_count: i32,
 }
 
 #[derive(Debug, Insertable)]

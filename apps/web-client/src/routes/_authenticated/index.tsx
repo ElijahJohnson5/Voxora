@@ -53,7 +53,7 @@ function HomePage() {
         replace: true,
       });
     }
-  }, [connected, loading, communities, channels, navigate]);
+  }, [connected, loading, communities, channels, navigate, communityList]);
 
   if (connecting || (connected && loading)) {
     return (

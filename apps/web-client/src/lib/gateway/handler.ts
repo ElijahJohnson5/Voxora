@@ -21,6 +21,7 @@ import {
   type Channel,
   type Role,
 } from "@/stores/communities";
+import { useMessageStore } from "@/stores/messages";
 
 /**
  * Route a dispatched event to the correct store update.
@@ -88,32 +89,33 @@ export function handleDispatch(event: DispatchEventName, data: unknown): void {
  * Called from `GatewayConnection` after a successful IDENTIFY.
  */
 export function handleReady(payload: ReadyPayload): void {
-  const communities: Record<string, Community> = {};
-  const channels: Record<string, Channel[]> = {};
-  const roles: Record<string, Role[]> = {};
+  useCommunityStore.setState((state) => {
+    const communities = { ...state.communities };
+    const channels = { ...state.channels };
+    const roles = { ...state.roles };
 
-  for (const community of payload.communities) {
-    communities[community.id] = {
-      id: community.id,
-      name: community.name,
-      description: community.description,
-      icon_url: community.icon_url,
-      owner_id: community.owner_id,
-      member_count: community.member_count,
-    } as Community;
-    channels[community.id] = ([...community.channels] as Channel[]).sort(
-      (a, b) => a.position - b.position,
-    );
-    roles[community.id] = ([...community.roles] as Role[]).sort(
-      (a, b) => a.position - b.position,
-    );
-  }
+    for (const community of payload.communities) {
+      // Merge community — READY data wins (has latest state)
+      communities[community.id] = {
+        ...communities[community.id],
+        id: community.id,
+        name: community.name,
+        description: community.description,
+        icon_url: community.icon_url,
+        owner_id: community.owner_id,
+        member_count: community.member_count,
+      } as Community;
 
-  useCommunityStore.setState({
-    communities,
-    channels,
-    roles,
-    loading: false,
+      // READY channels have message_count — always prefer them
+      channels[community.id] = ([...community.channels] as Channel[]).sort(
+        (a, b) => a.position - b.position,
+      );
+      roles[community.id] = ([...community.roles] as Role[]).sort(
+        (a, b) => a.position - b.position,
+      );
+    }
+
+    return { communities, channels, roles, loading: false };
   });
 }
 
@@ -125,18 +127,17 @@ export function handleReady(payload: ReadyPayload): void {
 // will be wired to the messages store once it's created. For now they log.
 
 function handleMessageCreate(payload: MessagePayload) {
-  console.debug("[gateway] MESSAGE_CREATE", payload.id, payload.channel_id);
-  // TODO (C-6): messageStore.addMessage(payload)
+  useMessageStore.getState().gatewayMessageCreate(payload);
 }
 
 function handleMessageUpdate(payload: MessagePayload) {
-  console.debug("[gateway] MESSAGE_UPDATE", payload.id);
-  // TODO (C-6): messageStore.updateMessage(payload)
+  useMessageStore.getState().gatewayMessageUpdate(payload);
 }
 
 function handleMessageDelete(payload: MessageDeletePayload) {
-  console.debug("[gateway] MESSAGE_DELETE", payload.id);
-  // TODO (C-6): messageStore.deleteMessage(payload.channel_id, payload.id)
+  useMessageStore
+    .getState()
+    .gatewayMessageDelete(payload.channel_id, payload.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,21 +145,11 @@ function handleMessageDelete(payload: MessageDeletePayload) {
 // ---------------------------------------------------------------------------
 
 function handleReactionAdd(payload: ReactionPayload) {
-  console.debug(
-    "[gateway] MESSAGE_REACTION_ADD",
-    payload.message_id,
-    payload.emoji,
-  );
-  // TODO (C-6): messageStore.addReaction(payload)
+  useMessageStore.getState().gatewayReactionAdd(payload);
 }
 
 function handleReactionRemove(payload: ReactionPayload) {
-  console.debug(
-    "[gateway] MESSAGE_REACTION_REMOVE",
-    payload.message_id,
-    payload.emoji,
-  );
-  // TODO (C-6): messageStore.removeReaction(payload)
+  useMessageStore.getState().gatewayReactionRemove(payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,9 +159,10 @@ function handleReactionRemove(payload: ReactionPayload) {
 function handleChannelCreate(payload: ChannelPayload) {
   useCommunityStore.setState((state) => {
     const communityChannels = state.channels[payload.community_id] ?? [];
-    const updated = [...communityChannels, payload].sort(
-      (a, b) => a.position - b.position,
-    );
+    const updated = [
+      ...communityChannels,
+      { ...payload, message_count: 0 },
+    ].sort((a, b) => a.position - b.position);
     return {
       channels: { ...state.channels, [payload.community_id]: updated },
     };

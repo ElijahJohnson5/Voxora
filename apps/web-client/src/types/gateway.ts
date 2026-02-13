@@ -140,13 +140,13 @@ export interface HeartbeatAckPayload {
 // --- Message events ---
 
 export interface MessagePayload {
-  id: number;
+  id: string;
   channel_id: string;
   author_id: string;
   content: string | null;
   type: number;
   flags: number;
-  reply_to: number | null;
+  reply_to: string | null;
   edited_at: string | null;
   pinned: boolean;
   created_at: string;
@@ -157,14 +157,14 @@ export interface MessagePayload {
 }
 
 export interface MessageDeletePayload {
-  id: number;
+  id: string;
   channel_id: string;
 }
 
 // --- Reaction events ---
 
 export interface ReactionPayload {
-  message_id: number;
+  message_id: string;
   channel_id: string;
   user_id: string;
   emoji: string;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useMatch, useNavigate } from "@tanstack/react-router";
 import { Plus, ArrowDownToLine } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -33,11 +33,21 @@ export function Sidebar() {
   const {
     communities,
     channels,
-    activeCommunityId,
-    activeChannelId,
     createCommunity,
     joinViaInvite,
   } = useCommunityStore();
+
+  // Read active IDs from URL — always in sync, no flash
+  const communityMatch = useMatch({
+    from: "/_authenticated/community/$communityId",
+    shouldThrow: false,
+  });
+  const channelMatch = useMatch({
+    from: "/_authenticated/community/$communityId/channel/$channelId",
+    shouldThrow: false,
+  });
+  const activeCommunityId = communityMatch?.params.communityId ?? null;
+  const activeChannelId = channelMatch?.params.channelId ?? null;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);

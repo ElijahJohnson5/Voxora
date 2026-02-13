@@ -4,6 +4,7 @@ import { hubApi } from "@/lib/api/hub-client";
 import { createPodClient } from "@/lib/api/pod-client";
 import type { components } from "@/lib/api/pod";
 import { useCommunityStore } from "@/stores/communities";
+import { useMessageStore } from "@/stores/messages";
 import { gateway } from "@/lib/gateway/connection";
 import { handleReady } from "@/lib/gateway/handler";
 
@@ -108,24 +109,17 @@ export const usePodStore = create<PodState>()(
           // 4. Schedule PAT refresh
           get().scheduleRefresh(loginData.expires_in);
 
-          // 5. Connect to Gateway WebSocket
+          // 6. Connect to Gateway WebSocket in parallel — READY merges on top
           if (loginData.ws_url && loginData.ws_ticket) {
-            try {
-              const readyPayload = await gateway.connect(
-                loginData.ws_url,
-                loginData.ws_ticket,
-              );
-              handleReady(readyPayload);
-            } catch (gwErr) {
-              console.warn(
-                "[pod] Gateway connection failed, falling back to REST",
-                gwErr,
-              );
-              useCommunityStore.getState().fetchCommunities();
-            }
-          } else {
-            // No WS ticket — fall back to REST
-            useCommunityStore.getState().fetchCommunities();
+            gateway
+              .connect(loginData.ws_url, loginData.ws_ticket)
+              .then(handleReady)
+              .catch((gwErr) => {
+                console.warn(
+                  "[pod] Gateway connection failed, REST data already loaded",
+                  gwErr,
+                );
+              });
           }
         } catch (err) {
           const message =
@@ -178,23 +172,20 @@ export const usePodStore = create<PodState>()(
 
           get().scheduleRefresh(data.expires_in);
 
-          // Connect to Gateway with the fresh ticket
+          // Fetch communities via REST immediately (fast path)
+          useCommunityStore.getState().fetchCommunities();
+
+          // Connect to Gateway in parallel — READY merges on top
           if (data.ws_url && data.ws_ticket) {
-            try {
-              const readyPayload = await gateway.connect(
-                data.ws_url,
-                data.ws_ticket,
-              );
-              handleReady(readyPayload);
-            } catch (gwErr) {
-              console.warn(
-                "[pod] Gateway reconnect failed, falling back to REST",
-                gwErr,
-              );
-              useCommunityStore.getState().fetchCommunities();
-            }
-          } else {
-            useCommunityStore.getState().fetchCommunities();
+            gateway
+              .connect(data.ws_url, data.ws_ticket)
+              .then(handleReady)
+              .catch((gwErr) => {
+                console.warn(
+                  "[pod] Gateway reconnect failed, REST data already loaded",
+                  gwErr,
+                );
+              });
           }
         } catch {
           // Pod unreachable — fall back to SIA with backoff
@@ -235,6 +226,7 @@ export const usePodStore = create<PodState>()(
         }
         gateway.disconnect();
         useCommunityStore.getState().reset();
+        useMessageStore.getState().reset();
         set({
           podId: null,
           podUrl: null,

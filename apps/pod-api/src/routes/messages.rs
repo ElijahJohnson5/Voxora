@@ -46,6 +46,8 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SendMessageRequest {
     pub content: Option<String>,
+    #[serde(default, deserialize_with = "crate::models::message::deserialize_string_or_number")]
+    #[schema(value_type = Option<String>)]
     pub reply_to: Option<i64>,
 }
 
@@ -155,6 +157,14 @@ pub async fn send_message(
         &mut conn,
     )
     .await?;
+
+    // Increment channel message count.
+    let _ = diesel_async::RunQueryDsl::execute(
+        diesel::update(channels::table.find(&channel_id))
+            .set(channels::message_count.eq(channels::message_count + 1)),
+        &mut conn,
+    )
+    .await;
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: channel.community_id.clone(),
@@ -485,11 +495,21 @@ pub async fn delete_message(
     )
     .await?;
 
+    // Decrement channel message count.
+    let _ = diesel_async::RunQueryDsl::execute(
+        diesel::update(channels::table.find(&path.channel_id))
+            .set(channels::message_count.eq(
+                diesel::dsl::sql::<diesel::sql_types::Int4>("GREATEST(message_count - 1, 0)"),
+            )),
+        &mut conn,
+    )
+    .await;
+
     state.broadcast.dispatch(BroadcastPayload {
         community_id: channel_community_id,
         event_name: EventName::MESSAGE_DELETE.to_string(),
         data: serde_json::json!({
-            "id": path.message_id,
+            "id": path.message_id.to_string(),
             "channel_id": path.channel_id,
         }),
     });
@@ -703,7 +723,7 @@ pub async fn remove_reaction(
         community_id: channel_community_id,
         event_name: EventName::MESSAGE_REACTION_REMOVE.to_string(),
         data: serde_json::json!({
-            "message_id": path.message_id,
+            "message_id": path.message_id.to_string(),
             "user_id": user_id,
             "emoji": path.emoji,
             "channel_id": path.channel_id,

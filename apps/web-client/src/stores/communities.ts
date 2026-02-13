@@ -22,6 +22,7 @@ interface CommunitiesState {
   setActiveCommunity: (id: string) => void;
   setActiveChannel: (id: string) => void;
   fetchCommunities: () => Promise<void>;
+  fetchCommunity: (communityId: string) => Promise<void>;
   fetchMembers: (communityId: string) => Promise<void>;
   createCommunity: (name: string, description?: string) => Promise<string>;
   joinViaInvite: (code: string) => Promise<string>;
@@ -47,6 +48,31 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
   setActiveCommunity: (id) => set({ activeCommunityId: id }),
   setActiveChannel: (id) => set({ activeChannelId: id }),
 
+  fetchCommunity: async (communityId: string) => {
+    try {
+      const client = getPodClient();
+      const { data, error } = await client.GET("/api/v1/communities/{id}", {
+        params: { path: { id: communityId } },
+      });
+      if (error || !data) throw new Error("Failed to fetch community");
+
+      const resp = data as CommunityResponse;
+      set((state) => ({
+        communities: { ...state.communities, [resp.id]: resp },
+        channels: {
+          ...state.channels,
+          [resp.id]: [...resp.channels].sort((a, b) => a.position - b.position),
+        },
+        roles: {
+          ...state.roles,
+          [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+        },
+      }));
+    } catch {
+      // silently fail — community just won't show up
+    }
+  },
+
   fetchCommunities: async () => {
     set({ loading: true });
     try {
@@ -56,25 +82,17 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
       const { data: communityList, error: listError } = await client.GET(
         "/api/v1/communities",
       );
-      if (listError || !communityList) throw new Error("Failed to fetch communities");
-
-      // Fetch full details (with channels + roles) for each community
-      const results = await Promise.all(
-        communityList.map((c) =>
-          client.GET("/api/v1/communities/{id}", { params: { path: { id: c.id } } }),
-        ),
-      );
+      if (listError || !communityList)
+        throw new Error("Failed to fetch communities");
 
       const communities: Record<string, Community> = {};
       const channels: Record<string, Channel[]> = {};
       const roles: Record<string, Role[]> = {};
 
-      for (const { data, error } of results) {
-        if (error || !data) continue;
-        const resp = data as CommunityResponse;
-        communities[resp.id] = resp;
-        channels[resp.id] = [...resp.channels].sort((a, b) => a.position - b.position);
-        roles[resp.id] = [...resp.roles].sort((a, b) => a.position - b.position);
+      for (const community of communityList) {
+        communities[community.id] = {
+          ...community,
+        };
       }
 
       set({ communities, channels, roles, loading: false });

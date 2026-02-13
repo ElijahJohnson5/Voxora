@@ -321,6 +321,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             id: string;
+            /** Format: int32 */
+            message_count: number;
             name: string;
             nsfw: boolean;
             parent_id?: string | null;
@@ -445,11 +447,9 @@ export interface components {
             edited_at?: string | null;
             /** Format: int32 */
             flags: number;
-            /** Format: int64 */
-            id: number;
+            id: string;
             pinned: boolean;
-            /** Format: int64 */
-            reply_to?: number | null;
+            reply_to?: string | null;
             /** Format: int32 */
             type: number;
         };
@@ -471,8 +471,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             emoji: string;
-            /** Format: int64 */
-            message_id: number;
+            message_id: string;
             user_id: string;
         };
         RefreshRequest: {
@@ -511,8 +510,7 @@ export interface components {
         };
         SendMessageRequest: {
             content?: string | null;
-            /** Format: int64 */
-            reply_to?: number | null;
+            reply_to?: string | null;
         };
         UpdateChannelRequest: {
             name?: string | null;

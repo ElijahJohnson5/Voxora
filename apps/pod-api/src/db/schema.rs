@@ -55,6 +55,7 @@ diesel::table! {
         nsfw -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        message_count -> Int4,
     }
 }
 

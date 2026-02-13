@@ -1,4 +1,5 @@
 import { Moon, Sun, Monitor } from "lucide-react";
+import { useMatch } from "@tanstack/react-router";
 import { useTheme } from "@/lib/theme";
 import { useCommunityStore } from "@/stores/communities";
 import { useGatewayStatus } from "@/lib/gateway/useGatewayStatus";
@@ -31,13 +32,19 @@ const statusConfig = {
 
 export function Header() {
   const { theme, setTheme } = useTheme();
-  const { activeCommunityId, activeChannelId, channels } = useCommunityStore();
+  const channels = useCommunityStore((s) => s.channels);
   const gatewayStatus = useGatewayStatus();
 
-  const channelList = activeCommunityId
-    ? (channels[activeCommunityId] ?? [])
-    : [];
-  const activeChannel = channelList.find((c) => c.id === activeChannelId);
+  // Read IDs directly from the URL — always in sync, no flash
+  const channelMatch = useMatch({
+    from: "/_authenticated/community/$communityId/channel/$channelId",
+    shouldThrow: false,
+  });
+  const communityId = channelMatch?.params.communityId;
+  const channelId = channelMatch?.params.channelId;
+
+  const channelList = communityId ? (channels[communityId] ?? []) : [];
+  const activeChannel = channelList.find((c) => c.id === channelId);
 
   const current =
     themeOptions.find((o) => o.value === theme) ?? themeOptions[2];
