@@ -1,60 +1,203 @@
+import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { Plus, ArrowDownToLine } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useCommunityStore } from "@/stores/communities";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  CreateCommunityDialog,
+  JoinInviteDialog,
+} from "@/components/communities/community-dialogs";
 
-const communities = [
-  { id: "1", name: "Voxora Dev", initials: "VD" },
-  { id: "2", name: "Gaming Hub", initials: "GH" },
-  { id: "3", name: "Music Fans", initials: "MF" },
-];
-
-const channels = [
-  { id: "general", name: "general" },
-  { id: "random", name: "random" },
-  { id: "dev", name: "dev" },
-  { id: "music", name: "music" },
-];
+function getInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 export function Sidebar() {
+  const navigate = useNavigate();
+  const {
+    communities,
+    channels,
+    activeCommunityId,
+    activeChannelId,
+    createCommunity,
+    joinViaInvite,
+  } = useCommunityStore();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+
+  const communityList = Object.values(communities);
+  const activeCommunity = activeCommunityId
+    ? communities[activeCommunityId]
+    : null;
+  const activeChannels = activeCommunityId
+    ? (channels[activeCommunityId] ?? [])
+    : [];
+
+  function navigateToCommunity(communityId: string) {
+    const communityChannels = channels[communityId] ?? [];
+    const community = communities[communityId];
+    const defaultChannel =
+      community?.default_channel ?? communityChannels[0]?.id;
+    if (defaultChannel) {
+      navigate({
+        to: "/community/$communityId/channel/$channelId",
+        params: { communityId, channelId: defaultChannel },
+      });
+    }
+  }
+
   return (
     <div className="flex h-full w-60 shrink-0 border-r border-border">
       {/* Community icon strip */}
-      <div className="flex w-16 flex-col items-center gap-2 border-r border-border bg-secondary/50 py-3">
-        {communities.map((community) => (
-          <button
-            key={community.id}
-            title={community.name}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground",
-            )}
-          >
-            {community.initials}
-          </button>
-        ))}
-        <div className="my-1 h-px w-8 bg-border" />
-        <button
-          title="Add Community"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
-        >
-          +
-        </button>
-      </div>
+      <TooltipProvider delayDuration={100}>
+        <div className="flex w-16 flex-col items-center gap-2 border-r border-border bg-secondary/50">
+          <ScrollArea className="flex-1 w-full">
+            <div className="flex flex-col items-center gap-2 py-3">
+              {communityList.map((community) => (
+                <Tooltip key={community.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => navigateToCommunity(community.id)}
+                      className="flex items-center justify-center"
+                    >
+                      <Avatar
+                        className={cn(
+                          "h-10 w-10 cursor-pointer transition-all",
+                          activeCommunityId === community.id &&
+                            "ring-2 ring-primary",
+                        )}
+                      >
+                        {community.icon_url && (
+                          <AvatarImage
+                            src={community.icon_url}
+                            alt={community.name}
+                          />
+                        )}
+                        <AvatarFallback className="text-xs font-medium">
+                          {getInitials(community.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{community.name}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </ScrollArea>
+
+          <Separator className="w-8" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setCreateOpen(true)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Create Community</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setJoinOpen(true)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
+              >
+                <ArrowDownToLine className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Join via Invite</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
 
       {/* Channel list */}
-      <div className="flex flex-1 flex-col overflow-y-auto">
+      <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex h-12 items-center border-b border-border px-3">
-          <h2 className="text-sm font-semibold">Voxora Dev</h2>
+          <h2 className="truncate text-sm font-semibold">
+            {activeCommunity?.name ?? "Select a community"}
+          </h2>
         </div>
-        <nav className="flex-1 space-y-0.5 px-2 py-2">
-          {channels.map((channel) => (
-            <button
-              key={channel.id}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              <span className="text-xs">#</span>
-              {channel.name}
-            </button>
-          ))}
-        </nav>
+        <ScrollArea className="flex-1">
+          <nav className="space-y-0.5 px-2 py-2">
+            {activeChannels.map((channel) => (
+              <Button
+                key={channel.id}
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-2 px-2",
+                  activeChannelId === channel.id && "bg-accent",
+                )}
+                onClick={() => {
+                  if (!activeCommunityId) return;
+                  navigate({
+                    to: "/community/$communityId/channel/$channelId",
+                    params: {
+                      communityId: activeCommunityId,
+                      channelId: channel.id,
+                    },
+                  });
+                }}
+              >
+                <span className="text-xs text-muted-foreground">#</span>
+                {channel.name}
+              </Button>
+            ))}
+          </nav>
+        </ScrollArea>
       </div>
+
+      <CreateCommunityDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreate={async (name, description) => {
+          try {
+            const id = await createCommunity(name, description);
+            toast.success("Community created");
+            setCreateOpen(false);
+            navigateToCommunity(id);
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : "Failed to create community",
+            );
+          }
+        }}
+      />
+      <JoinInviteDialog
+        open={joinOpen}
+        onOpenChange={setJoinOpen}
+        onJoin={async (code) => {
+          try {
+            const id = await joinViaInvite(code);
+            toast.success("Joined community");
+            setJoinOpen(false);
+            navigateToCommunity(id);
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : "Failed to join community",
+            );
+          }
+        }}
+      />
     </div>
   );
 }

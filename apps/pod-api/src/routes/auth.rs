@@ -153,6 +153,10 @@ fn flags_to_bitfield(flags: &[String]) -> i64 {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RefreshRequest {
     pub refresh_token: String,
+    /// When true, the response will include a fresh `ws_ticket` and `ws_url`
+    /// for reconnecting to the Gateway.
+    #[serde(default)]
+    pub include_ws_ticket: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -161,6 +165,12 @@ pub struct RefreshResponse {
     pub token_type: String,
     pub expires_in: u64,
     pub refresh_token: String,
+    /// Present only when `include_ws_ticket` was set to `true` in the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_ticket: Option<String>,
+    /// Present only when `include_ws_ticket` was set to `true` in the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_url: Option<String>,
 }
 
 #[utoipa::path(
@@ -200,15 +210,34 @@ pub async fn refresh(
         kv,
         &new_refresh,
         &tokens::RefreshData {
-            user_id: data.user_id,
+            user_id: data.user_id.clone(),
         },
     )
     .await?;
+
+    // Optionally generate a WS ticket for gateway reconnection.
+    let (ws_ticket, ws_url) = if body.include_ws_ticket {
+        let ticket = tokens::generate_ws_ticket();
+        tokens::store_ws_ticket(
+            kv,
+            &ticket,
+            &tokens::WsTicketData {
+                user_id: data.user_id,
+            },
+        )
+        .await?;
+        let url = format!("ws://localhost:{}/gateway", state.config.port);
+        (Some(ticket), Some(url))
+    } else {
+        (None, None)
+    };
 
     Ok(Json(RefreshResponse {
         access_token: new_pat,
         token_type: "Bearer".to_string(),
         expires_in: tokens::PAT_TTL_SECS,
         refresh_token: new_refresh,
+        ws_ticket,
+        ws_url,
     }))
 }

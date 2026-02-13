@@ -3,6 +3,9 @@ import { persist } from "zustand/middleware";
 import { hubApi } from "@/lib/api/hub-client";
 import { createPodClient } from "@/lib/api/pod-client";
 import type { components } from "@/lib/api/pod";
+import { useCommunityStore } from "@/stores/communities";
+import { gateway } from "@/lib/gateway/connection";
+import { handleReady } from "@/lib/gateway/handler";
 
 export type PodUser = components["schemas"]["UserInfo"];
 
@@ -104,6 +107,26 @@ export const usePodStore = create<PodState>()(
 
           // 4. Schedule PAT refresh
           get().scheduleRefresh(loginData.expires_in);
+
+          // 5. Connect to Gateway WebSocket
+          if (loginData.ws_url && loginData.ws_ticket) {
+            try {
+              const readyPayload = await gateway.connect(
+                loginData.ws_url,
+                loginData.ws_ticket,
+              );
+              handleReady(readyPayload);
+            } catch (gwErr) {
+              console.warn(
+                "[pod] Gateway connection failed, falling back to REST",
+                gwErr,
+              );
+              useCommunityStore.getState().fetchCommunities();
+            }
+          } else {
+            // No WS ticket — fall back to REST
+            useCommunityStore.getState().fetchCommunities();
+          }
         } catch (err) {
           const message =
             err instanceof Error ? err.message : "Connection failed";
@@ -127,12 +150,15 @@ export const usePodStore = create<PodState>()(
         set({ connecting: true, error: null });
 
         try {
-          // Try refreshing the PAT directly — no SIA needed
+          // Only request a new WS ticket if the gateway isn't already connected
+          const needsGateway = gateway.status !== "connected";
           const podClient = createPodClient(podUrl);
-          const { data, error } = await podClient.POST(
-            "/api/v1/auth/refresh",
-            { body: { refresh_token: refreshToken } },
-          );
+          const { data, error } = await podClient.POST("/api/v1/auth/refresh", {
+            body: {
+              refresh_token: refreshToken,
+              include_ws_ticket: needsGateway,
+            },
+          });
 
           if (error || !data) {
             // Refresh token expired — fall back to full SIA flow
@@ -144,11 +170,32 @@ export const usePodStore = create<PodState>()(
           set({
             pat: data.access_token,
             refreshToken: data.refresh_token,
+            wsTicket: data.ws_ticket ?? null,
+            wsUrl: data.ws_url ?? null,
             connected: true,
             connecting: false,
           });
 
           get().scheduleRefresh(data.expires_in);
+
+          // Connect to Gateway with the fresh ticket
+          if (data.ws_url && data.ws_ticket) {
+            try {
+              const readyPayload = await gateway.connect(
+                data.ws_url,
+                data.ws_ticket,
+              );
+              handleReady(readyPayload);
+            } catch (gwErr) {
+              console.warn(
+                "[pod] Gateway reconnect failed, falling back to REST",
+                gwErr,
+              );
+              useCommunityStore.getState().fetchCommunities();
+            }
+          } else {
+            useCommunityStore.getState().fetchCommunities();
+          }
         } catch {
           // Pod unreachable — fall back to SIA with backoff
           await get().connectToPod(podId, podUrl);
@@ -161,10 +208,9 @@ export const usePodStore = create<PodState>()(
 
         try {
           const podClient = createPodClient(podUrl);
-          const { data, error } = await podClient.POST(
-            "/api/v1/auth/refresh",
-            { body: { refresh_token: refreshToken } },
-          );
+          const { data, error } = await podClient.POST("/api/v1/auth/refresh", {
+            body: { refresh_token: refreshToken },
+          });
 
           if (error || !data) {
             throw new Error("Failed to refresh PAT");
@@ -187,6 +233,8 @@ export const usePodStore = create<PodState>()(
           clearTimeout(refreshTimer);
           refreshTimer = null;
         }
+        gateway.disconnect();
+        useCommunityStore.getState().reset();
         set({
           podId: null,
           podUrl: null,
@@ -232,6 +280,10 @@ export const usePodStore = create<PodState>()(
 
 // On load, if we have persisted pod state, reconnect using refresh token (no SIA)
 const initialPodState = usePodStore.getState();
-if (initialPodState.podId && initialPodState.podUrl && initialPodState.refreshToken) {
+if (
+  initialPodState.podId &&
+  initialPodState.podUrl &&
+  initialPodState.refreshToken
+) {
   usePodStore.getState().reconnect();
 }

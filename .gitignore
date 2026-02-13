@@ -11,3 +11,5 @@ target/
 specs/
 .env
 .env.*
+
+tsconfig.tsbuildinfo

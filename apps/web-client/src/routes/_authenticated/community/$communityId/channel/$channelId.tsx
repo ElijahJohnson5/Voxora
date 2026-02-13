@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useCommunityStore } from "@/stores/communities";
 
 export const Route = createFileRoute(
   "/_authenticated/community/$communityId/channel/$channelId",
@@ -8,6 +10,11 @@ export const Route = createFileRoute(
 
 function ChannelView() {
   const { channelId } = Route.useParams();
+  const setActiveChannel = useCommunityStore((s) => s.setActiveChannel);
+
+  useEffect(() => {
+    setActiveChannel(channelId);
+  }, [channelId, setActiveChannel]);
 
   return (
     <div className="flex h-full flex-col">
