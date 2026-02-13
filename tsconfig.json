@@ -4,7 +4,7 @@
   "files": [],
   "references": [
     {
-      "path": "./web-client"
+      "path": "./apps/web-client"
     }
   ]
 }
