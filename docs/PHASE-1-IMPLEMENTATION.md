@@ -787,50 +787,72 @@ Implement the WebSocket Gateway at `GET /gateway` (upgrades to WebSocket).
 ```
 apps/web-client/
 ├── src/
-│   ├── main.tsx
-│   ├── app/
-│   │   └── app.tsx              # Root component + router
-│   ├── pages/
-│   │   ├── login.tsx            # OIDC login initiation
-│   │   ├── callback.tsx         # OIDC redirect callback
-│   │   ├── home.tsx             # Pod browser / community list
-│   │   └── community.tsx        # Main chat view
+│   ├── main.tsx                    # Entry point, renders RouterProvider
+│   ├── styles.css                  # Tailwind directives + global styles
+│   ├── routeTree.gen.ts            # Auto-generated route tree (TanStack Router)
+│   ├── routes/
+│   │   ├── __root.tsx              # Root layout (providers, Toaster, etc.)
+│   │   ├── login.tsx               # /login — OIDC login initiation
+│   │   ├── callback.tsx            # /callback — OIDC redirect handler
+│   │   ├── _authenticated.tsx      # Layout route — auth guard (redirects to /login)
+│   │   ├── _authenticated/
+│   │   │   ├── index.tsx           # / — Home / pod browser
+│   │   │   ├── community/
+│   │   │   │   ├── $communityId.tsx          # /community/$communityId layout
+│   │   │   │   └── $communityId/
+│   │   │   │       ├── index.tsx             # Redirects to default channel
+│   │   │   │       └── channel/
+│   │   │   │           └── $channelId.tsx    # /community/$communityId/channel/$channelId
+│   │   │   └── settings.tsx        # /settings — User settings
 │   ├── components/
+│   │   ├── ui/                     # shadcn/ui primitives (auto-generated)
+│   │   │   ├── button.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── avatar.tsx
+│   │   │   ├── scroll-area.tsx
+│   │   │   ├── separator.tsx
+│   │   │   ├── tooltip.tsx
+│   │   │   ├── popover.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── badge.tsx
+│   │   │   ├── textarea.tsx
+│   │   │   └── sonner.tsx          # Toast notifications
 │   │   ├── layout/
-│   │   │   ├── sidebar.tsx      # Community list + channel list
-│   │   │   ├── chat-area.tsx    # Message list + input
-│   │   │   ├── member-list.tsx  # Right sidebar
-│   │   │   └── header.tsx       # Channel header
+│   │   │   ├── sidebar.tsx         # Community list + channel list
+│   │   │   ├── chat-area.tsx       # Message list + input
+│   │   │   ├── member-list.tsx     # Right sidebar
+│   │   │   └── header.tsx          # Channel header bar
 │   │   ├── messages/
-│   │   │   ├── message.tsx      # Single message component
-│   │   │   ├── message-list.tsx # Scrollable message list
-│   │   │   ├── message-input.tsx
-│   │   │   └── reaction.tsx
-│   │   ├── auth/
-│   │   │   └── protected-route.tsx
+│   │   │   ├── message.tsx         # Single message component
+│   │   │   ├── message-list.tsx    # Virtualized scrollable message list
+│   │   │   ├── message-input.tsx   # Textarea with send
+│   │   │   └── reaction.tsx        # Reaction badge + picker
 │   │   └── settings/
 │   │       └── user-settings.tsx
 │   ├── stores/
-│   │   ├── auth.ts              # OIDC tokens, SIA, Hub auth state
-│   │   ├── pod.ts               # Current Pod connection, PAT
-│   │   ├── communities.ts       # Community + channel state
-│   │   └── messages.ts          # Message cache per channel
+│   │   ├── auth.ts                 # OIDC tokens, SIA, Hub auth state
+│   │   ├── pod.ts                  # Current Pod connection, PAT
+│   │   ├── communities.ts          # Community + channel state
+│   │   └── messages.ts             # Message cache per channel
 │   ├── lib/
 │   │   ├── api/
-│   │   │   ├── hub.ts           # Hub API client
-│   │   │   └── pod.ts           # Pod API client
+│   │   │   ├── hub.ts              # Hub API client
+│   │   │   └── pod.ts              # Pod API client
 │   │   ├── gateway/
-│   │   │   ├── connection.ts    # WebSocket connection manager
-│   │   │   ├── events.ts        # Event type definitions
-│   │   │   └── handler.ts       # Dispatch event handler
-│   │   ├── oidc.ts              # PKCE helpers, auth flow
-│   │   └── utils.ts
-│   ├── types/
-│   │   ├── api.ts               # API request/response types
-│   │   ├── gateway.ts           # WebSocket event types
-│   │   └── models.ts            # Shared model types
-│   └── styles/
-│       └── styles.css
+│   │   │   ├── connection.ts       # WebSocket connection manager
+│   │   │   ├── events.ts           # Event type definitions
+│   │   │   └── handler.ts          # Dispatch event handler
+│   │   ├── oidc.ts                 # PKCE helpers, auth flow
+│   │   └── utils.ts                # cn() helper, misc utilities
+│   └── types/
+│       ├── api.ts                  # API request/response types
+│       ├── gateway.ts              # WebSocket event types
+│       └── models.ts               # Shared model types
+├── components.json                 # shadcn/ui configuration
+├── tailwind.config.ts              # Tailwind config (shadcn preset)
+├── postcss.config.js               # PostCSS (Tailwind + autoprefixer)
 ├── index.html
 ├── vite.config.mts
 └── package.json
@@ -840,26 +862,124 @@ apps/web-client/
 
 Install in `apps/web-client`:
 
-```
-pnpm add zustand react-router-dom
-pnpm add -D @types/react-router-dom
+```bash
+# Core
+pnpm add zustand @tanstack/react-router
+pnpm add -D @tanstack/router-plugin @tanstack/router-devtools
+
+# Styling
+pnpm add tailwindcss @tailwindcss/vite
+pnpm add class-variance-authority clsx tailwind-merge lucide-react
+pnpm add sonner                       # Toast notifications (used by shadcn Sonner)
+
+# shadcn/ui — initialize, then add components as needed
+pnpm dlx shadcn@latest init
+pnpm dlx shadcn@latest add button input dialog dropdown-menu avatar \
+  scroll-area separator tooltip popover skeleton badge textarea sonner
 ```
 
-### WS-3.3 Tasks (ordered by dependency)
+### WS-3.3 Tailwind & shadcn Setup Notes
 
-#### Task C-1: Routing & Layout Shell
+**`tailwind.config.ts`** — Use the shadcn/ui preset which defines CSS custom-property-based theme tokens (`--background`, `--foreground`, `--primary`, etc.) for light/dark mode support.
+
+**`src/styles.css`** — Tailwind directives:
+
+```css
+@import "tailwindcss";
+```
+
+**`src/lib/utils.ts`** — Standard `cn()` helper used by all shadcn components:
+
+```ts
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+```
+
+**`vite.config.mts`** — Add the TanStack Router plugin for file-based route generation:
+
+```ts
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    tailwindcss(),
+    react(),
+  ],
+  // ...
+});
+```
+
+The plugin auto-generates `routeTree.gen.ts` from the `src/routes/` directory on save.
+
+### WS-3.4 Tasks (ordered by dependency)
+
+#### Task C-1: Routing, Tailwind & Layout Shell
 
 **Priority: P0**
 
-- Install `react-router-dom`
-- Set up routes:
-  - `/login` → Login page
-  - `/callback` → OIDC callback handler
-  - `/` → Home (pod browser, redirect to login if unauthenticated)
-  - `/community/:communityId` → Community view
-  - `/community/:communityId/channel/:channelId` → Channel view
-- Create the three-panel layout shell (sidebar | chat | member list) with placeholder content
-- Create `ProtectedRoute` component that redirects to `/login` if no auth state
+- Install TanStack Router, Tailwind CSS, and shadcn/ui (see WS-3.2)
+- Configure Vite with `@tanstack/router-plugin/vite` and `@tailwindcss/vite`
+- Initialize shadcn (`pnpm dlx shadcn@latest init`) — choose "New York" style, slate base color, CSS variables enabled
+- Add initial shadcn components: `button`, `input`, `scroll-area`, `separator`, `avatar`, `tooltip`, `skeleton`
+- Create the file-based route tree:
+  - `__root.tsx` — wraps the app in providers (Zustand context if needed), renders `<Outlet />` and `<Toaster />`
+  - `login.tsx` — public login page
+  - `callback.tsx` — public OIDC callback
+  - `_authenticated.tsx` — layout route that checks auth state and calls `redirect({ to: "/login" })` via `beforeLoad` if unauthenticated
+  - `_authenticated/index.tsx` — home / pod browser
+  - `_authenticated/community/$communityId.tsx` — community layout with sidebar
+  - `_authenticated/community/$communityId/channel/$channelId.tsx` — channel chat view
+  - `_authenticated/settings.tsx` — user settings
+- Create the three-panel layout shell using Tailwind utility classes:
+  - Left sidebar (w-60, dark bg) — community icons + channel list
+  - Center chat area (flex-1) — header + messages + input
+  - Right member list (w-60, collapsible) — member avatars + names
+- Use shadcn `ScrollArea` for all scrollable panels
+- Use shadcn `Separator`, `Avatar`, `Tooltip` throughout the layout
+
+**TanStack Router auth guard pattern:**
+
+```tsx
+// src/routes/_authenticated.tsx
+import { createFileRoute, redirect, Outlet } from "@tanstack/react-router";
+import { useAuthStore } from "../stores/auth";
+
+export const Route = createFileRoute("/_authenticated")({
+  beforeLoad: () => {
+    const { accessToken } = useAuthStore.getState();
+    if (!accessToken) {
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: () => <Outlet />,
+});
+```
+
+**Typesafe navigation examples:**
+
+```tsx
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+
+// Typesafe Link — IDE autocompletes route paths and validates params
+<Link
+  to="/community/$communityId/channel/$channelId"
+  params={{ communityId: "com_01KP...", channelId: "ch_01KP..." }}
+  className={cn("text-sm", isActive && "text-foreground font-semibold")}
+>
+  #general
+</Link>;
+
+// Typesafe params — inferred from the route definition
+const { communityId, channelId } = useParams({
+  from: "/community/$communityId/channel/$channelId",
+});
+```
 
 #### Task C-2: OIDC Login Flow
 
@@ -868,22 +988,35 @@ pnpm add -D @types/react-router-dom
 
 Implement the full PKCE flow:
 
-1. **Login page**: "Login with Voxora" button
+1. **Login page** (`src/routes/login.tsx`):
+   - Centered card layout using shadcn `Button` for the "Login with Voxora" CTA
+   - Styled with Tailwind: `flex items-center justify-center min-h-screen bg-background`
 2. **On click**:
    - Generate `code_verifier` (random 64-byte base64url string)
    - Compute `code_challenge = base64url(SHA-256(code_verifier))`
    - Generate `state` (random 32-byte string)
    - Store `code_verifier` and `state` in `sessionStorage`
    - Redirect to Hub: `{HUB_URL}/oidc/authorize?response_type=code&client_id=voxora-web&redirect_uri={CALLBACK_URL}&scope=openid+profile+email+pods+offline_access&state={state}&code_challenge={challenge}&code_challenge_method=S256`
-3. **Callback page** (`/callback?code=...&state=...`):
+3. **Callback route** (`src/routes/callback.tsx`):
+   - Use TanStack Router's `searchParams` validation to parse `code` and `state` from the URL:
+     ```tsx
+     export const Route = createFileRoute("/callback")({
+       validateSearch: (search: Record<string, unknown>) => ({
+         code: search.code as string,
+         state: search.state as string,
+       }),
+       component: CallbackPage,
+     });
+     ```
    - Verify `state` matches sessionStorage
    - Exchange code for tokens: `POST {HUB_URL}/oidc/token` with `{ grant_type: "authorization_code", code, redirect_uri, code_verifier, client_id: "voxora-web" }`
    - Store `access_token`, `refresh_token`, `id_token` in Zustand auth store (persisted to `localStorage`)
-   - Redirect to `/`
+   - Navigate to `/` via `useNavigate()` (typesafe)
+   - Show a loading skeleton (shadcn `Skeleton`) during the token exchange
 
 4. **Token refresh**: Background timer that refreshes access token 1 minute before expiry using refresh_token grant
 
-5. **Logout**: Clear all tokens, redirect to `/login`
+5. **Logout**: Clear all tokens, navigate to `/login`
 
 #### Task C-3: Pod Connection Flow
 
@@ -901,16 +1034,23 @@ Implement the full PKCE flow:
 **Priority: P1**
 **Depends on: C-3**
 
-- **Sidebar (left)**:
-  - Top section: list of communities the user is a member of (from READY event)
-  - Click community → show its channels below
-  - Channel list grouped by position
-  - Click channel → navigate to `/community/{id}/channel/{channelId}`
-  - Active channel highlighted
+- **Sidebar (left)** — built with Tailwind layout utilities + shadcn components:
+  - Top section: community icon buttons (shadcn `Avatar` + `Tooltip`) in a vertical strip
+  - Click community → second column slides in with channel list
+  - Channel list rendered with shadcn `Button` variant `ghost`, grouped by position
+  - Click channel → typesafe navigation:
+    ```tsx
+    <Link
+      to="/community/$communityId/channel/$channelId"
+      params={{ communityId: community.id, channelId: channel.id }}
+    />
+    ```
+  - Active channel gets `bg-accent text-accent-foreground` styling
+  - Use shadcn `ScrollArea` for overflow
 
-- **Header**: Shows current channel name and topic
+- **Header** — shadcn `Separator` below, shows channel name (bold) + topic (muted)
 
-- **Join flow**: "Join Community" button → enter invite code → `POST /invites/{code}/accept` → refresh community list
+- **Join flow**: shadcn `Dialog` triggered by "Join Community" button → `Input` for invite code → `POST /invites/{code}/accept` → refresh community list, show success via `sonner` toast
 
 #### Task C-5: WebSocket Gateway Client
 
@@ -932,38 +1072,41 @@ Implement a `GatewayConnection` class/module:
    - `COMMUNITY_UPDATE` → update community store
    - `MEMBER_JOIN/LEAVE/UPDATE` → update member store
 6. On close: attempt reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
+7. Show connection status in the UI via a `Badge` (connected / reconnecting / disconnected)
 
 #### Task C-6: Message Sending & Receiving
 
 **Priority: P1**
 **Depends on: C-5, Pod P-5**
 
-- **Message list**: Scrollable container showing messages for the current channel
+- **Message list** — shadcn `ScrollArea` with Tailwind-styled message bubbles:
   - Load initial history via REST: `GET /channels/{id}/messages?limit=50`
   - New messages arrive via Gateway `MESSAGE_CREATE`
   - Scroll to bottom on new message (if already at bottom)
-  - Infinite scroll up: load older messages with `?before=<oldest_id>`
-  - Display: avatar, username, timestamp, content, edited indicator
+  - Infinite scroll up: load older messages with `?before=<oldest_id>`, show shadcn `Skeleton` placeholders while loading
+  - Each message: `Avatar` (left), username (`text-sm font-semibold`), timestamp (`text-xs text-muted-foreground`), content, edited indicator (`Badge` variant `secondary`)
   - Render message content as plain text (Markdown rendering can come later)
 
-- **Message input**: Text input at bottom of chat area
+- **Message input** — shadcn `Textarea` at bottom of chat area:
   - Send on Enter (Shift+Enter for newline)
   - `POST /channels/{id}/messages` with `{ content, nonce: uuid() }`
-  - Optimistic insert: show message immediately with pending state, reconcile with `MESSAGE_CREATE` from Gateway using `nonce`
-  - Edit: click own message → inline edit → `PATCH /channels/{channel_id}/messages/{id}`
-  - Delete: click own message → delete → `DELETE /channels/{channel_id}/messages/{id}`
+  - Optimistic insert: show message immediately with `opacity-50` pending state, reconcile with `MESSAGE_CREATE` from Gateway using `nonce`
+  - Edit: click own message → inline edit via `Textarea` swap → `PATCH /channels/{channel_id}/messages/{id}`
+  - Delete: shadcn `DropdownMenu` on own message → "Delete" item → `DELETE /channels/{channel_id}/messages/{id}`
 
-- **Reactions**: Click emoji picker on hover → `PUT .../reactions/{emoji}`. Display reaction counts below message.
+- **Reactions**: shadcn `Popover` with emoji picker on hover → `PUT .../reactions/{emoji}`. Display reaction counts as `Badge` components below message.
 
 #### Task C-7: Basic Settings
 
 **Priority: P2**
 **Depends on: C-2**
 
-- User settings page accessible from sidebar user area
+- Settings page at `/settings` (file: `src/routes/_authenticated/settings.tsx`)
+- Form built with shadcn `Input`, `Button`, `Avatar`
 - Display current user info (from Hub)
 - Allow editing display_name via `PATCH {HUB_URL}/api/v1/users/@me`
-- Logout button
+- Success/error feedback via `sonner` toast
+- Logout button — shadcn `Button` variant `destructive`
 
 ---
 
@@ -1370,10 +1513,19 @@ pnpm nx serve web-client
 
 ### Web Client (npm)
 
-| Package            | Purpose          |
-| ------------------ | ---------------- |
-| `zustand`          | State management |
-| `react-router-dom` | Routing          |
+| Package                     | Purpose                                    |
+| --------------------------- | ------------------------------------------ |
+| `zustand`                   | State management                           |
+| `@tanstack/react-router`    | Typesafe file-based routing                |
+| `@tanstack/router-plugin`   | Vite plugin for route tree code generation |
+| `@tanstack/router-devtools` | Router devtools (dev only)                 |
+| `tailwindcss`               | Utility-first CSS framework                |
+| `@tailwindcss/vite`         | Tailwind CSS Vite plugin                   |
+| `class-variance-authority`  | Component variant helper (used by shadcn)  |
+| `clsx` + `tailwind-merge`   | Class name merging (`cn()` utility)        |
+| `lucide-react`              | Icon library (used by shadcn components)   |
+| `sonner`                    | Toast notification library                 |
+| shadcn/ui components        | Pre-built accessible UI primitives         |
 
 ---
 

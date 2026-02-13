@@ -728,8 +728,8 @@ export function NxWelcome({ title }: { title: string }) {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {' '}
-                  What is Nx Cloud?{' '}
+                  {" "}
+                  What is Nx Cloud?{" "}
                 </a>
               </div>
             </div>
@@ -754,19 +754,18 @@ export function NxWelcome({ title }: { title: string }) {
                   />
                 </svg>
                 Build, test and lint your app
-                </summary>
-                <pre>
-                 <span># Build</span>
-                  nx build {title}
-                  <span># Test</span>
-                  nx test {title}
-                  <span># Lint</span>
-                  nx lint {title}
-                  <span># Run them together!</span>
-                  nx run-many -p {title} -t build test lint
-                
-                </pre>
-                </details>
+              </summary>
+              <pre>
+                <span># Build</span>
+                nx build {title}
+                <span># Test</span>
+                nx test {title}
+                <span># Lint</span>
+                nx lint {title}
+                <span># Run them together!</span>
+                nx run-many -p {title} -t build test lint
+              </pre>
+            </details>
 
             <details>
               <summary>
