@@ -1,6 +1,6 @@
 const CLIENT_ID = "voxora-web";
 const REDIRECT_URI = `${window.location.origin}/callback`;
-const SCOPES = "openid profile email";
+const SCOPES = "openid profile email pods";
 const HUB_URL = import.meta.env.VITE_HUB_URL || "http://localhost:4001";
 
 // --- PKCE helpers ---
@@ -135,25 +135,14 @@ export async function handleCallback(
 }
 
 // --- Token refresh ---
-
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<TokenResult> {
-  const res = await fetch(`${HUB_URL}/oidc/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: CLIENT_ID,
-    }),
+  const data = await postToken({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: CLIENT_ID,
   });
-
-  if (!res.ok) {
-    throw new Error(`Token refresh failed (${res.status})`);
-  }
-
-  const data: TokenResponse = await res.json();
 
   return {
     accessToken: data.access_token,

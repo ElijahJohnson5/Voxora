@@ -2,6 +2,7 @@
 name = "hub-api"
 version = "0.1.0"
 edition = "2021"
+default-run = "hub-api"
 
 [dependencies]
 voxora-common = { path = "../../libs/common" }
