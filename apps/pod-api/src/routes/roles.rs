@@ -8,10 +8,11 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{communities, community_members, roles};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::models::role::{NewRole, Role, UpdateRole};
 use crate::permissions;
 use crate::AppState;
@@ -32,7 +33,19 @@ pub fn router() -> Router<AppState> {
 // GET /api/v1/communities/:community_id/roles
 // ---------------------------------------------------------------------------
 
-async fn list_roles(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{community_id}/roles",
+    tag = "Roles",
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    responses(
+        (status = 200, description = "List of roles", body = [Role]),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn list_roles(
     State(state): State<AppState>,
     Path(community_id): Path<String>,
 ) -> Result<Json<Vec<Role>>, ApiError> {
@@ -65,7 +78,7 @@ async fn list_roles(
 // POST /api/v1/communities/:community_id/roles
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateRoleRequest {
     pub name: String,
     pub color: Option<i32>,
@@ -73,7 +86,23 @@ pub struct CreateRoleRequest {
     pub mentionable: Option<bool>,
 }
 
-async fn create_role(
+#[utoipa::path(
+    post,
+    path = "/api/v1/communities/{community_id}/roles",
+    tag = "Roles",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    request_body = CreateRoleRequest,
+    responses(
+        (status = 201, description = "Role created", body = Role),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+    ),
+)]
+pub async fn create_role(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(community_id): Path<String>,
@@ -165,7 +194,7 @@ pub struct RolePath {
     pub role_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     pub color: Option<Option<i32>>,
@@ -174,7 +203,25 @@ pub struct UpdateRoleRequest {
     pub position: Option<i32>,
 }
 
-async fn update_role(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/communities/{community_id}/roles/{role_id}",
+    tag = "Roles",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("role_id" = String, Path, description = "Role ID"),
+    ),
+    request_body = UpdateRoleRequest,
+    responses(
+        (status = 200, description = "Role updated", body = Role),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Role not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn update_role(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<RolePath>,
@@ -274,7 +321,24 @@ async fn update_role(
 // DELETE /api/v1/communities/:community_id/roles/:role_id
 // ---------------------------------------------------------------------------
 
-async fn delete_role(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/communities/{community_id}/roles/{role_id}",
+    tag = "Roles",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("role_id" = String, Path, description = "Role ID"),
+    ),
+    responses(
+        (status = 204, description = "Role deleted"),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Role not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn delete_role(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<RolePath>,

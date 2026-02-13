@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::channels;
 
@@ -15,7 +16,7 @@ pub struct UpdateChannel {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = channels)]
 pub struct Channel {
     pub id: String,

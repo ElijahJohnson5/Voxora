@@ -6,16 +6,17 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{pods, user_pod_bookmarks, users};
-use crate::error::{ApiError, FieldError};
+use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::models::pod::{Pod, PodResponse};
 use crate::models::user::{NewUser, PublicUserResponse, User, UserResponse};
 use crate::AppState;
 
 /// POST /api/v1/users — Register a new user.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateUserRequest {
     pub username: String,
     pub email: Option<String>,
@@ -31,7 +32,18 @@ pub fn router() -> Router<AppState> {
         .route("/users/{user_id}", get(get_user))
 }
 
-async fn create_user(
+#[utoipa::path(
+    post,
+    path = "/api/v1/users",
+    tag = "Users",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 201, description = "User created", body = UserResponse),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 409, description = "Username or email conflict", body = ApiErrorBody),
+    ),
+)]
+pub async fn create_user(
     State(state): State<AppState>,
     Json(body): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<UserResponse>), ApiError> {
@@ -157,7 +169,17 @@ fn hash_password(password: &str) -> Result<String, ApiError> {
 // =========================================================================
 
 /// `GET /api/v1/users/@me` — Return the current user's full profile.
-async fn get_me(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/@me",
+    tag = "Users",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, description = "Current user profile", body = UserResponse),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn get_me(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<UserResponse>, ApiError> {
@@ -177,7 +199,7 @@ async fn get_me(
 // PATCH /api/v1/users/@me — Update own profile
 // =========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateProfileRequest {
     #[serde(default)]
     pub display_name: Option<String>,
@@ -186,7 +208,19 @@ pub struct UpdateProfileRequest {
 }
 
 /// `PATCH /api/v1/users/@me` — Update the current user's profile.
-async fn update_me(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/@me",
+    tag = "Users",
+    security(("bearer" = [])),
+    request_body = UpdateProfileRequest,
+    responses(
+        (status = 200, description = "Updated user profile", body = UserResponse),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn update_me(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(body): Json<UpdateProfileRequest>,
@@ -256,7 +290,19 @@ async fn update_me(
 // =========================================================================
 
 /// `GET /api/v1/users/{user_id}` — Return a user's public profile.
-async fn get_user(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{user_id}",
+    tag = "Users",
+    params(
+        ("user_id" = String, Path, description = "User ID"),
+    ),
+    responses(
+        (status = 200, description = "Public user profile", body = PublicUserResponse),
+        (status = 404, description = "User not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<PublicUserResponse>, ApiError> {
@@ -278,13 +324,23 @@ async fn get_user(
 // GET /api/v1/users/@me/pods — List bookmarked pods
 // =========================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MyPodsResponse {
     pub data: Vec<PodResponse>,
 }
 
 /// `GET /api/v1/users/@me/pods` — List Pods the current user has bookmarked.
-async fn get_my_pods(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/@me/pods",
+    tag = "Users",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, description = "Bookmarked pods", body = MyPodsResponse),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn get_my_pods(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<MyPodsResponse>, ApiError> {

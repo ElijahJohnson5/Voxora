@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::messages;
 
-#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = messages)]
 pub struct Message {
     pub id: i64,

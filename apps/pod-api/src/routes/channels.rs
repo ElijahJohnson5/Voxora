@@ -8,10 +8,11 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, communities};
-use crate::error::{ApiError, FieldError};
+use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::{Channel, NewChannel, UpdateChannel};
@@ -36,7 +37,7 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/communities/:community_id/channels
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateChannelRequest {
     pub name: String,
     pub topic: Option<String>,
@@ -45,7 +46,24 @@ pub struct CreateChannelRequest {
     pub nsfw: Option<bool>,
 }
 
-async fn create_channel(
+#[utoipa::path(
+    post,
+    path = "/api/v1/communities/{community_id}/channels",
+    tag = "Channels",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    request_body = CreateChannelRequest,
+    responses(
+        (status = 201, description = "Channel created", body = Channel),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    )
+)]
+pub async fn create_channel(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(community_id): Path<String>,
@@ -126,7 +144,19 @@ async fn create_channel(
 // GET /api/v1/communities/:community_id/channels
 // ---------------------------------------------------------------------------
 
-async fn list_channels(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{community_id}/channels",
+    tag = "Channels",
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    responses(
+        (status = 200, description = "List of channels", body = [Channel]),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    )
+)]
+pub async fn list_channels(
     State(state): State<AppState>,
     Path(community_id): Path<String>,
 ) -> Result<Json<Vec<Channel>>, ApiError> {
@@ -158,7 +188,19 @@ async fn list_channels(
 // GET /api/v1/channels/:id
 // ---------------------------------------------------------------------------
 
-async fn get_channel(
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{id}",
+    tag = "Channels",
+    params(
+        ("id" = String, Path, description = "Channel ID"),
+    ),
+    responses(
+        (status = 200, description = "Channel found", body = Channel),
+        (status = 404, description = "Channel not found", body = ApiErrorBody),
+    )
+)]
+pub async fn get_channel(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Channel>, ApiError> {
@@ -179,7 +221,7 @@ async fn get_channel(
 // PATCH /api/v1/channels/:id
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateChannelRequest {
     pub name: Option<String>,
     pub topic: Option<String>,
@@ -188,7 +230,24 @@ pub struct UpdateChannelRequest {
     pub slowmode_seconds: Option<i32>,
 }
 
-async fn update_channel(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/channels/{id}",
+    tag = "Channels",
+    security(("bearer" = [])),
+    params(
+        ("id" = String, Path, description = "Channel ID"),
+    ),
+    request_body = UpdateChannelRequest,
+    responses(
+        (status = 200, description = "Channel updated", body = Channel),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Channel not found", body = ApiErrorBody),
+    )
+)]
+pub async fn update_channel(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -263,7 +322,22 @@ async fn update_channel(
 // DELETE /api/v1/channels/:id
 // ---------------------------------------------------------------------------
 
-async fn delete_channel(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/{id}",
+    tag = "Channels",
+    security(("bearer" = [])),
+    params(
+        ("id" = String, Path, description = "Channel ID"),
+    ),
+    responses(
+        (status = 204, description = "Channel deleted"),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Channel not found", body = ApiErrorBody),
+    )
+)]
+pub async fn delete_channel(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,

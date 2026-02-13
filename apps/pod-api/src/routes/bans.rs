@@ -9,10 +9,11 @@ use diesel::result::OptionalExtension;
 use diesel_async::AsyncConnection;
 use scoped_futures::ScopedFutureExt;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{bans, communities, community_members};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::models::ban::{Ban, NewBan};
 use crate::permissions;
 use crate::AppState;
@@ -34,12 +35,30 @@ pub struct BanPath {
     pub user_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct BanRequest {
     pub reason: Option<String>,
 }
 
-async fn ban_member(
+#[utoipa::path(
+    put,
+    path = "/api/v1/communities/{community_id}/bans/{user_id}",
+    tag = "Bans",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("user_id" = String, Path, description = "User ID to ban"),
+    ),
+    request_body = BanRequest,
+    responses(
+        (status = 200, description = "User banned", body = Ban),
+        (status = 400, description = "Cannot ban self or owner", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Missing permission", body = ApiErrorBody),
+        (status = 409, description = "Already banned", body = ApiErrorBody),
+    ),
+)]
+pub async fn ban_member(
     AuthUser {
         user_id: auth_user_id,
     }: AuthUser,
@@ -132,7 +151,23 @@ async fn ban_member(
 // DELETE /api/v1/communities/:community_id/bans/:user_id
 // ---------------------------------------------------------------------------
 
-async fn unban_member(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/communities/{community_id}/bans/{user_id}",
+    tag = "Bans",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("user_id" = String, Path, description = "User ID to unban"),
+    ),
+    responses(
+        (status = 204, description = "User unbanned"),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Missing permission", body = ApiErrorBody),
+        (status = 404, description = "Ban not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn unban_member(
     AuthUser {
         user_id: auth_user_id,
     }: AuthUser,

@@ -6,11 +6,12 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::tokens;
 use crate::db::schema::pods;
-use crate::error::{ApiError, FieldError};
+use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::models::pod::{NewPod, Pod, PodRegistrationResponse, PodResponse};
 use crate::AppState;
 
@@ -26,7 +27,7 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/pods/register — Register a new Pod
 // =========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterPodRequest {
     pub name: String,
     pub url: String,
@@ -59,7 +60,20 @@ fn default_max_members() -> i32 {
 }
 
 /// `POST /api/v1/pods/register` — Register a new Pod.
-async fn register_pod(
+#[utoipa::path(
+    post,
+    path = "/api/v1/pods/register",
+    tag = "Pods",
+    security(("bearer" = [])),
+    request_body = RegisterPodRequest,
+    responses(
+        (status = 201, description = "Pod registered", body = PodRegistrationResponse),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 409, description = "Conflict", body = ApiErrorBody),
+    ),
+)]
+pub async fn register_pod(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(body): Json<RegisterPodRequest>,
@@ -175,7 +189,7 @@ async fn register_pod(
 // POST /api/v1/pods/{pod_id}/heartbeat — Pod heartbeat
 // =========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct HeartbeatRequest {
     #[serde(default)]
     pub member_count: Option<i32>,
@@ -187,7 +201,7 @@ pub struct HeartbeatRequest {
     pub version: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HeartbeatResponse {
     pub ok: bool,
     pub recorded_at: String,
@@ -198,7 +212,21 @@ pub struct HeartbeatResponse {
 /// Authenticated via the Pod's `client_id`/`client_secret` pair sent as a
 /// Bearer token (the `client_secret` value). For Phase 1 we look the pod up
 /// by its id and verify the secret from the `Authorization` header.
-async fn heartbeat(
+#[utoipa::path(
+    post,
+    path = "/api/v1/pods/{pod_id}/heartbeat",
+    tag = "Pods",
+    params(
+        ("pod_id" = String, Path, description = "Pod ID"),
+    ),
+    request_body = HeartbeatRequest,
+    responses(
+        (status = 200, description = "Heartbeat recorded", body = HeartbeatResponse),
+        (status = 401, description = "Invalid credentials", body = ApiErrorBody),
+        (status = 404, description = "Pod not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn heartbeat(
     State(state): State<AppState>,
     Path(pod_id): Path<String>,
     headers: axum::http::HeaderMap,
@@ -258,7 +286,7 @@ async fn heartbeat(
 // GET /api/v1/pods — List pods
 // =========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ListPodsQuery {
     #[serde(default = "default_sort")]
     pub sort: String,
@@ -278,14 +306,28 @@ fn default_limit() -> i64 {
     25
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListPodsResponse {
     pub data: Vec<PodResponse>,
     pub has_more: bool,
 }
 
 /// `GET /api/v1/pods` — List active pods.
-async fn list_pods(
+#[utoipa::path(
+    get,
+    path = "/api/v1/pods",
+    tag = "Pods",
+    params(
+        ("sort" = Option<String>, Query, description = "Sort order: popular or newest"),
+        ("before" = Option<String>, Query, description = "Cursor: fetch pods before this ID"),
+        ("after" = Option<String>, Query, description = "Cursor: fetch pods after this ID"),
+        ("limit" = Option<i64>, Query, description = "Number of pods to return (1-100, default 25)"),
+    ),
+    responses(
+        (status = 200, description = "List of pods", body = ListPodsResponse),
+    ),
+)]
+pub async fn list_pods(
     State(state): State<AppState>,
     Query(params): Query<ListPodsQuery>,
 ) -> Result<Json<ListPodsResponse>, ApiError> {
@@ -336,7 +378,19 @@ async fn list_pods(
 // =========================================================================
 
 /// `GET /api/v1/pods/{pod_id}` — Get a single pod's details.
-async fn get_pod(
+#[utoipa::path(
+    get,
+    path = "/api/v1/pods/{pod_id}",
+    tag = "Pods",
+    params(
+        ("pod_id" = String, Path, description = "Pod ID"),
+    ),
+    responses(
+        (status = 200, description = "Pod details", body = PodResponse),
+        (status = 404, description = "Pod not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn get_pod(
     State(state): State<AppState>,
     Path(pod_id): Path<String>,
 ) -> Result<Json<PodResponse>, ApiError> {

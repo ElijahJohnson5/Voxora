@@ -6,10 +6,14 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
 use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::gateway::fanout::GatewayBroadcast;
+use pod_api::routes::ApiDoc;
 use pod_api::AppState;
 use std::path::Path;
 use voxora_common::SnowflakeGenerator;
@@ -60,6 +64,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(pod_api::routes::router())
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

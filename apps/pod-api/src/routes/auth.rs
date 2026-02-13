@@ -4,9 +4,10 @@ use axum::extract::State;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::{sia, tokens};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::models::pod_user;
 use crate::AppState;
 
@@ -20,12 +21,12 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/auth/login
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct LoginRequest {
     pub sia: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LoginResponse {
     pub access_token: String,
     pub token_type: String,
@@ -36,7 +37,7 @@ pub struct LoginResponse {
     pub user: UserInfo,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserInfo {
     pub id: String,
     pub username: String,
@@ -44,7 +45,17 @@ pub struct UserInfo {
     pub avatar_url: Option<String>,
 }
 
-async fn login(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/login",
+    tag = "Auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 401, description = "Invalid SIA token", body = ApiErrorBody),
+    ),
+)]
+pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
@@ -139,12 +150,12 @@ fn flags_to_bitfield(flags: &[String]) -> i64 {
 // POST /api/v1/auth/refresh
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RefreshResponse {
     pub access_token: String,
     pub token_type: String,
@@ -152,7 +163,17 @@ pub struct RefreshResponse {
     pub refresh_token: String,
 }
 
-async fn refresh(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/refresh",
+    tag = "Auth",
+    request_body = RefreshRequest,
+    responses(
+        (status = 200, description = "Tokens refreshed", body = RefreshResponse),
+        (status = 401, description = "Invalid refresh token", body = ApiErrorBody),
+    ),
+)]
+pub async fn refresh(
     State(state): State<AppState>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<RefreshResponse>, ApiError> {

@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::bans;
 
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = bans)]
 pub struct Ban {
     pub community_id: String,

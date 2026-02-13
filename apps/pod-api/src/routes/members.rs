@@ -7,10 +7,11 @@ use axum::{Json, Router};
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{communities, community_members};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
 use crate::models::community_member::CommunityMember;
@@ -36,13 +37,27 @@ pub struct ListMembersParams {
     pub after: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListMembersResponse {
     pub data: Vec<CommunityMember>,
     pub has_more: bool,
 }
 
-async fn list_members(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{community_id}/members",
+    tag = "Members",
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("limit" = Option<i64>, Query, description = "Max members to return"),
+        ("after" = Option<String>, Query, description = "Cursor: user ID to start after"),
+    ),
+    responses(
+        (status = 200, description = "List of members", body = ListMembersResponse),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    )
+)]
+pub async fn list_members(
     State(state): State<AppState>,
     Path(community_id): Path<String>,
     Query(params): Query<ListMembersParams>,
@@ -94,7 +109,20 @@ pub struct MemberPath {
     pub user_id: String,
 }
 
-async fn get_member(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{community_id}/members/{user_id}",
+    tag = "Members",
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("user_id" = String, Path, description = "User ID"),
+    ),
+    responses(
+        (status = 200, description = "Member details", body = CommunityMember),
+        (status = 404, description = "Member not found", body = ApiErrorBody),
+    )
+)]
+pub async fn get_member(
     State(state): State<AppState>,
     Path(path): Path<MemberPath>,
 ) -> Result<Json<CommunityMember>, ApiError> {
@@ -117,7 +145,24 @@ async fn get_member(
 // DELETE /api/v1/communities/:community_id/members/:user_id
 // ---------------------------------------------------------------------------
 
-async fn remove_member(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/communities/{community_id}/members/{user_id}",
+    tag = "Members",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("user_id" = String, Path, description = "User ID"),
+    ),
+    responses(
+        (status = 204, description = "Member removed"),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Member not found", body = ApiErrorBody),
+    )
+)]
+pub async fn remove_member(
     AuthUser {
         user_id: auth_user_id,
     }: AuthUser,
@@ -175,13 +220,31 @@ async fn remove_member(
 // PATCH /api/v1/communities/:community_id/members/:user_id
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateMemberRequest {
     pub nickname: Option<String>,
     pub roles: Option<Vec<String>>,
 }
 
-async fn update_member(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/communities/{community_id}/members/{user_id}",
+    tag = "Members",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("user_id" = String, Path, description = "User ID"),
+    ),
+    request_body = UpdateMemberRequest,
+    responses(
+        (status = 200, description = "Updated member", body = CommunityMember),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Member not found", body = ApiErrorBody),
+    )
+)]
+pub async fn update_member(
     AuthUser {
         user_id: auth_user_id,
     }: AuthUser,

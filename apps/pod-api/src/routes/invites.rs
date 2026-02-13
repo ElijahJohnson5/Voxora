@@ -11,10 +11,11 @@ use diesel_async::AsyncConnection;
 use rand::Rng;
 use scoped_futures::ScopedFutureExt;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{bans, communities, community_members, invites};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
 use crate::models::community_member::{CommunityMember, NewCommunityMember};
@@ -39,7 +40,7 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/communities/:community_id/invites
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateInviteRequest {
     pub max_uses: Option<i32>,
     pub max_age_seconds: Option<i32>,
@@ -56,7 +57,23 @@ fn generate_invite_code() -> String {
         .collect()
 }
 
-async fn create_invite(
+#[utoipa::path(
+    post,
+    path = "/api/v1/communities/{community_id}/invites",
+    tag = "Invites",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    request_body = CreateInviteRequest,
+    responses(
+        (status = 201, description = "Invite created", body = Invite),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+    ),
+)]
+pub async fn create_invite(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(community_id): Path<String>,
@@ -116,7 +133,21 @@ async fn create_invite(
 // GET /api/v1/communities/:community_id/invites
 // ---------------------------------------------------------------------------
 
-async fn list_invites(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{community_id}/invites",
+    tag = "Invites",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+    ),
+    responses(
+        (status = 200, description = "List of invites", body = [Invite]),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+    ),
+)]
+pub async fn list_invites(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(community_id): Path<String>,
@@ -158,7 +189,23 @@ pub struct InvitePath {
     pub code: String,
 }
 
-async fn delete_invite(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/communities/{community_id}/invites/{code}",
+    tag = "Invites",
+    security(("bearer" = [])),
+    params(
+        ("community_id" = String, Path, description = "Community ID"),
+        ("code" = String, Path, description = "Invite code"),
+    ),
+    responses(
+        (status = 204, description = "Invite deleted"),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn delete_invite(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<InvitePath>,
@@ -194,7 +241,24 @@ async fn delete_invite(
 // POST /api/v1/invites/:code/accept
 // ---------------------------------------------------------------------------
 
-async fn accept_invite(
+#[utoipa::path(
+    post,
+    path = "/api/v1/invites/{code}/accept",
+    tag = "Invites",
+    security(("bearer" = [])),
+    params(
+        ("code" = String, Path, description = "Invite code"),
+    ),
+    responses(
+        (status = 201, description = "Invite accepted", body = CommunityMember),
+        (status = 400, description = "Bad request", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Not found", body = ApiErrorBody),
+        (status = 409, description = "Conflict", body = ApiErrorBody),
+    ),
+)]
+pub async fn accept_invite(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(code): Path<String>,

@@ -10,10 +10,11 @@ use diesel::result::OptionalExtension;
 use diesel_async::AsyncConnection;
 use scoped_futures::ScopedFutureExt;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, communities, community_members, roles};
-use crate::error::{ApiError, FieldError};
+use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::{Channel, NewChannel};
@@ -38,14 +39,26 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/communities
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateCommunityRequest {
     pub name: String,
     pub description: Option<String>,
     pub icon_url: Option<String>,
 }
 
-async fn create_community(
+#[utoipa::path(
+    post,
+    path = "/api/v1/communities",
+    tag = "Communities",
+    security(("bearer" = [])),
+    request_body = CreateCommunityRequest,
+    responses(
+        (status = 201, description = "Community created", body = CommunityResponse),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    )
+)]
+pub async fn create_community(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<CreateCommunityRequest>,
@@ -179,7 +192,15 @@ async fn create_community(
 // GET /api/v1/communities
 // ---------------------------------------------------------------------------
 
-async fn list_communities(State(state): State<AppState>) -> Result<Json<Vec<Community>>, ApiError> {
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities",
+    tag = "Communities",
+    responses(
+        (status = 200, description = "List of communities", body = [Community]),
+    )
+)]
+pub async fn list_communities(State(state): State<AppState>) -> Result<Json<Vec<Community>>, ApiError> {
     let mut conn = state.db.get().await?;
 
     let list: Vec<Community> = diesel_async::RunQueryDsl::load(
@@ -197,7 +218,19 @@ async fn list_communities(State(state): State<AppState>) -> Result<Json<Vec<Comm
 // GET /api/v1/communities/:id
 // ---------------------------------------------------------------------------
 
-async fn get_community(
+#[utoipa::path(
+    get,
+    path = "/api/v1/communities/{id}",
+    tag = "Communities",
+    params(
+        ("id" = String, Path, description = "Community ID"),
+    ),
+    responses(
+        (status = 200, description = "Community details", body = CommunityResponse),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    )
+)]
+pub async fn get_community(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<CommunityResponse>, ApiError> {
@@ -240,14 +273,30 @@ async fn get_community(
 // PATCH /api/v1/communities/:id
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateCommunityRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub icon_url: Option<String>,
 }
 
-async fn update_community(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/communities/{id}",
+    tag = "Communities",
+    security(("bearer" = [])),
+    params(
+        ("id" = String, Path, description = "Community ID"),
+    ),
+    request_body = UpdateCommunityRequest,
+    responses(
+        (status = 200, description = "Community updated", body = Community),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Community not found", body = ApiErrorBody),
+    )
+)]
+pub async fn update_community(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -305,7 +354,21 @@ async fn update_community(
 // DELETE /api/v1/communities/:id
 // ---------------------------------------------------------------------------
 
-async fn delete_community(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/communities/{id}",
+    tag = "Communities",
+    security(("bearer" = [])),
+    params(
+        ("id" = String, Path, description = "Community ID"),
+    ),
+    responses(
+        (status = 204, description = "Community deleted"),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+    )
+)]
+pub async fn delete_community(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,

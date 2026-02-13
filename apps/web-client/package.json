@@ -1,5 +1,14 @@
 {
   "name": "web-client",
   "version": "0.0.1",
-  "private": true
+  "private": true,
+  "scripts": {
+    "generate:types": "openapi-typescript ../../specs/hub-api.json -o src/lib/api/hub.d.ts && openapi-typescript ../../specs/pod-api.json -o src/lib/api/pod.d.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
 }

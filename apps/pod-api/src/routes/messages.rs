@@ -8,10 +8,11 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{channels, messages, reactions};
-use crate::error::{ApiError, FieldError};
+use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
 use crate::models::channel::Channel;
@@ -42,13 +43,30 @@ pub fn router() -> Router<AppState> {
 // POST /api/v1/channels/:channel_id/messages
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SendMessageRequest {
     pub content: Option<String>,
     pub reply_to: Option<i64>,
 }
 
-async fn send_message(
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/{channel_id}/messages",
+    tag = "Messages",
+    security(("bearer" = [])),
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+    ),
+    request_body = SendMessageRequest,
+    responses(
+        (status = 201, description = "Message sent", body = Message),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Channel not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn send_message(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(channel_id): Path<String>,
@@ -159,13 +177,29 @@ pub struct ListMessagesParams {
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListMessagesResponse {
     pub data: Vec<Message>,
     pub has_more: bool,
 }
 
-async fn list_messages(
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{channel_id}/messages",
+    tag = "Messages",
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("before" = Option<i64>, Query, description = "Fetch messages before this ID"),
+        ("after" = Option<i64>, Query, description = "Fetch messages after this ID"),
+        ("around" = Option<i64>, Query, description = "Fetch messages around this ID"),
+        ("limit" = Option<i64>, Query, description = "Number of messages (1-100, default 50)"),
+    ),
+    responses(
+        (status = 200, description = "List of messages", body = ListMessagesResponse),
+        (status = 404, description = "Channel not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn list_messages(
     State(state): State<AppState>,
     Path(channel_id): Path<String>,
     Query(params): Query<ListMessagesParams>,
@@ -268,12 +302,30 @@ pub struct MessagePath {
     pub message_id: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EditMessageRequest {
     pub content: String,
 }
 
-async fn edit_message(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/channels/{channel_id}/messages/{message_id}",
+    tag = "Messages",
+    security(("bearer" = [])),
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("message_id" = i64, Path, description = "Message ID"),
+    ),
+    request_body = EditMessageRequest,
+    responses(
+        (status = 200, description = "Message edited", body = Message),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Message not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn edit_message(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<MessagePath>,
@@ -356,7 +408,23 @@ async fn edit_message(
 // DELETE /api/v1/channels/:channel_id/messages/:message_id
 // ---------------------------------------------------------------------------
 
-async fn delete_message(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/{channel_id}/messages/{message_id}",
+    tag = "Messages",
+    security(("bearer" = [])),
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("message_id" = i64, Path, description = "Message ID"),
+    ),
+    responses(
+        (status = 204, description = "Message deleted"),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Forbidden", body = ApiErrorBody),
+        (status = 404, description = "Message not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn delete_message(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<MessagePath>,
@@ -444,7 +512,24 @@ pub struct ReactionPath {
 // PUT /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
 // ---------------------------------------------------------------------------
 
-async fn add_reaction(
+#[utoipa::path(
+    put,
+    path = "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
+    tag = "Reactions",
+    security(("bearer" = [])),
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("message_id" = i64, Path, description = "Message ID"),
+        ("emoji" = String, Path, description = "Emoji"),
+    ),
+    responses(
+        (status = 200, description = "Reaction added", body = Reaction),
+        (status = 400, description = "Invalid emoji", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 404, description = "Message not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn add_reaction(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
@@ -557,7 +642,22 @@ async fn add_reaction(
 // DELETE /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
 // ---------------------------------------------------------------------------
 
-async fn remove_reaction(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
+    tag = "Reactions",
+    security(("bearer" = [])),
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("message_id" = i64, Path, description = "Message ID"),
+        ("emoji" = String, Path, description = "Emoji"),
+    ),
+    responses(
+        (status = 204, description = "Reaction removed"),
+        (status = 404, description = "Message not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn remove_reaction(
     AuthUser { user_id }: AuthUser,
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
@@ -617,7 +717,21 @@ async fn remove_reaction(
 // GET /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
 // ---------------------------------------------------------------------------
 
-async fn list_reactions(
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
+    tag = "Reactions",
+    params(
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("message_id" = i64, Path, description = "Message ID"),
+        ("emoji" = String, Path, description = "Emoji"),
+    ),
+    responses(
+        (status = 200, description = "List of reactions", body = [Reaction]),
+        (status = 404, description = "Message not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn list_reactions(
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
 ) -> Result<Json<Vec<Reaction>>, ApiError> {

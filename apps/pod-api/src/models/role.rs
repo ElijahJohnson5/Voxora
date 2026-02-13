@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::roles;
 
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = roles)]
 pub struct Role {
     pub id: String,

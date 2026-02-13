@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::pod_users;
 
 /// A user record local to this Pod, created from a Hub SIA.
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = pod_users)]
 pub struct PodUser {
     pub id: String,

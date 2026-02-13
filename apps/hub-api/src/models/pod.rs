@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::pods;
 
@@ -52,7 +53,7 @@ pub struct NewPod {
 }
 
 /// Public-facing pod response (no sensitive fields).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PodResponse {
     pub id: String,
     pub owner_id: String,
@@ -100,7 +101,7 @@ impl From<Pod> for PodResponse {
 }
 
 /// Registration response — includes the client credentials (returned only once).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PodRegistrationResponse {
     pub pod_id: String,
     pub client_id: String,

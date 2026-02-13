@@ -4,11 +4,12 @@ use axum::{Json, Router};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::sia;
 use crate::db::schema::{pods, user_pod_bookmarks, users};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::models::bookmark::NewUserPodBookmark;
 use crate::models::pod::Pod;
 use crate::models::user::User;
@@ -18,19 +19,33 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/oidc/sia", post(issue_sia))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SiaRequest {
     pub pod_id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SiaResponse {
     pub sia: String,
     pub expires_at: String,
 }
 
 /// `POST /api/v1/oidc/sia` — Issue a Signed Identity Assertion for a target Pod.
-async fn issue_sia(
+#[utoipa::path(
+    post,
+    path = "/api/v1/oidc/sia",
+    tag = "SIA",
+    security(("bearer" = [])),
+    request_body = SiaRequest,
+    responses(
+        (status = 200, description = "SIA issued", body = SiaResponse),
+        (status = 400, description = "Invalid pod_id", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+        (status = 403, description = "Missing pods scope", body = ApiErrorBody),
+        (status = 404, description = "Pod not found", body = ApiErrorBody),
+    ),
+)]
+pub async fn issue_sia(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(body): Json<SiaRequest>,

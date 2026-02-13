@@ -2,14 +2,15 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// Structured API error returned to clients.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiErrorBody {
     pub error: ApiErrorDetail,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiErrorDetail {
     pub code: String,
     pub message: String,
@@ -17,7 +18,7 @@ pub struct ApiErrorDetail {
     pub details: Option<Vec<FieldError>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct FieldError {
     pub field: String,
     pub message: String,

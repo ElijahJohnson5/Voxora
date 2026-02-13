@@ -9,6 +9,8 @@ pub mod messages;
 pub mod roles;
 
 use axum::Router;
+use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 
 use crate::AppState;
 
@@ -28,3 +30,119 @@ pub fn router() -> Router<AppState> {
                 .merge(bans::router()),
         )
 }
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer",
+                SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+            );
+        }
+    }
+}
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        // Health
+        health::health,
+        // Auth
+        auth::login,
+        auth::refresh,
+        // Communities
+        communities::create_community,
+        communities::list_communities,
+        communities::get_community,
+        communities::update_community,
+        communities::delete_community,
+        // Channels
+        channels::create_channel,
+        channels::list_channels,
+        channels::get_channel,
+        channels::update_channel,
+        channels::delete_channel,
+        // Messages
+        messages::send_message,
+        messages::list_messages,
+        messages::edit_message,
+        messages::delete_message,
+        // Reactions
+        messages::add_reaction,
+        messages::remove_reaction,
+        messages::list_reactions,
+        // Members
+        members::list_members,
+        members::get_member,
+        members::remove_member,
+        members::update_member,
+        // Roles
+        roles::list_roles,
+        roles::create_role,
+        roles::update_role,
+        roles::delete_role,
+        // Invites
+        invites::create_invite,
+        invites::list_invites,
+        invites::delete_invite,
+        invites::accept_invite,
+        // Bans
+        bans::ban_member,
+        bans::unban_member,
+    ),
+    components(
+        schemas(
+            // Error types
+            crate::error::ApiErrorBody,
+            crate::error::ApiErrorDetail,
+            crate::error::FieldError,
+            // Models
+            crate::models::community::Community,
+            crate::models::community::CommunityResponse,
+            crate::models::channel::Channel,
+            crate::models::message::Message,
+            crate::models::community_member::CommunityMember,
+            crate::models::role::Role,
+            crate::models::invite::Invite,
+            crate::models::reaction::Reaction,
+            crate::models::pod_user::PodUser,
+            crate::models::ban::Ban,
+            // Route request/response types
+            health::HealthResponse,
+            auth::LoginRequest,
+            auth::LoginResponse,
+            auth::UserInfo,
+            auth::RefreshRequest,
+            auth::RefreshResponse,
+            communities::CreateCommunityRequest,
+            communities::UpdateCommunityRequest,
+            channels::CreateChannelRequest,
+            channels::UpdateChannelRequest,
+            messages::SendMessageRequest,
+            messages::EditMessageRequest,
+            messages::ListMessagesResponse,
+            members::ListMembersResponse,
+            members::UpdateMemberRequest,
+            roles::CreateRoleRequest,
+            roles::UpdateRoleRequest,
+            invites::CreateInviteRequest,
+            bans::BanRequest,
+        )
+    ),
+    modifiers(&SecurityAddon),
+    tags(
+        (name = "Health", description = "Health check"),
+        (name = "Auth", description = "Authentication"),
+        (name = "Communities", description = "Community management"),
+        (name = "Channels", description = "Channel management"),
+        (name = "Messages", description = "Messaging"),
+        (name = "Reactions", description = "Message reactions"),
+        (name = "Members", description = "Community members"),
+        (name = "Roles", description = "Role management"),
+        (name = "Invites", description = "Invite management"),
+        (name = "Bans", description = "Ban management"),
+    )
+)]
+pub struct ApiDoc;

@@ -1,12 +1,13 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::communities;
 use crate::models::channel::Channel;
 use crate::models::role::Role;
 
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Serialize, ToSchema)]
 #[diesel(table_name = communities)]
 pub struct Community {
     pub id: String,
@@ -43,7 +44,7 @@ pub struct UpdateCommunity {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CommunityResponse {
     #[serde(flatten)]
     pub community: Community,

@@ -8,19 +8,71 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use utoipa::ToSchema;
 
 use crate::auth::tokens::{
     self, generate_access_token, generate_opaque_token, generate_refresh_token, mint_id_token,
     AccessTokenData, AuthCodeData, ACCESS_TOKEN_TTL_SECS, REFRESH_TOKEN_TTL_DAYS,
 };
 use crate::db::schema::{sessions, users};
-use crate::error::ApiError;
+use crate::error::{ApiError, ApiErrorBody};
 use crate::models::session::NewSession;
 use crate::models::user::User;
 use crate::AppState;
 
 /// Allowed client_id for Phase 1.
 const CLIENT_ID: &str = "voxora-web";
+
+// ===========================================================================
+// Schema-only structs for OpenAPI documentation
+// ===========================================================================
+
+/// OpenID Connect discovery document.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OpenIdConfiguration {
+    pub issuer: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub userinfo_endpoint: String,
+    pub jwks_uri: String,
+    pub revocation_endpoint: String,
+    pub response_types_supported: Vec<String>,
+    pub grant_types_supported: Vec<String>,
+    pub subject_types_supported: Vec<String>,
+    pub id_token_signing_alg_values_supported: Vec<String>,
+    pub scopes_supported: Vec<String>,
+    pub token_endpoint_auth_methods_supported: Vec<String>,
+    pub code_challenge_methods_supported: Vec<String>,
+}
+
+/// JSON Web Key Set response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct JwksResponse {
+    pub keys: Vec<JwkKey>,
+}
+
+/// A single JSON Web Key.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct JwkKey {
+    pub kty: String,
+    pub crv: String,
+    pub kid: String,
+    #[serde(rename = "use")]
+    #[schema(rename = "use")]
+    pub use_: String,
+    pub x: String,
+}
+
+/// UserInfo endpoint response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserinfoResponse {
+    pub sub: String,
+    pub preferred_username: Option<String>,
+    pub name: Option<String>,
+    pub picture: Option<String>,
+    pub email: Option<String>,
+    pub email_verified: Option<bool>,
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -45,7 +97,15 @@ pub fn router() -> Router<AppState> {
 // GET /.well-known/openid-configuration
 // ===========================================================================
 
-async fn openid_configuration(State(state): State<AppState>) -> Json<serde_json::Value> {
+#[utoipa::path(
+    get,
+    path = "/.well-known/openid-configuration",
+    tag = "OIDC",
+    responses(
+        (status = 200, description = "OpenID Connect discovery document", body = OpenIdConfiguration),
+    ),
+)]
+pub async fn openid_configuration(State(state): State<AppState>) -> Json<serde_json::Value> {
     let hub = &state.config.hub_domain;
     Json(serde_json::json!({
         "issuer": hub,
@@ -68,7 +128,15 @@ async fn openid_configuration(State(state): State<AppState>) -> Json<serde_json:
 // GET /oidc/.well-known/jwks.json
 // ===========================================================================
 
-async fn jwks(State(state): State<AppState>) -> Json<serde_json::Value> {
+#[utoipa::path(
+    get,
+    path = "/oidc/.well-known/jwks.json",
+    tag = "OIDC",
+    responses(
+        (status = 200, description = "JSON Web Key Set", body = JwksResponse),
+    ),
+)]
+pub async fn jwks(State(state): State<AppState>) -> Json<serde_json::Value> {
     let keys = &state.keys;
     Json(serde_json::json!({
         "keys": [{
@@ -100,7 +168,15 @@ pub struct AuthorizeParams {
 
 /// Render a minimal HTML login form.
 /// The SPA would typically collect credentials and POST here.
-async fn authorize(Query(params): Query<AuthorizeParams>) -> Response {
+#[utoipa::path(
+    get,
+    path = "/oidc/authorize",
+    tag = "OIDC",
+    responses(
+        (status = 200, description = "Login form", content_type = "text/html"),
+    ),
+)]
+pub async fn authorize(Query(params): Query<AuthorizeParams>) -> Response {
     // Validate basics
     if params.response_type != "code" {
         return (StatusCode::BAD_REQUEST, "unsupported response_type").into_response();
@@ -159,7 +235,15 @@ pub struct AuthorizeSubmit {
 }
 
 /// Process login form — validate credentials, generate auth code, redirect.
-async fn authorize_submit(
+#[utoipa::path(
+    post,
+    path = "/oidc/authorize",
+    tag = "OIDC",
+    responses(
+        (status = 302, description = "Redirect with auth code"),
+    ),
+)]
+pub async fn authorize_submit(
     State(state): State<AppState>,
     Form(form): Form<AuthorizeSubmit>,
 ) -> Result<Response, ApiError> {
@@ -235,7 +319,7 @@ async fn authorize_submit(
 // POST /oidc/token
 // ===========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct TokenRequest {
     pub grant_type: String,
     #[serde(default)]
@@ -250,7 +334,7 @@ pub struct TokenRequest {
     pub refresh_token: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: &'static str,
@@ -262,7 +346,17 @@ pub struct TokenResponse {
     pub scope: String,
 }
 
-async fn token(
+#[utoipa::path(
+    post,
+    path = "/oidc/token",
+    tag = "OIDC",
+    request_body = TokenRequest,
+    responses(
+        (status = 200, description = "Token response", body = TokenResponse),
+        (status = 400, description = "Invalid request", body = ApiErrorBody),
+    ),
+)]
+pub async fn token(
     State(state): State<AppState>,
     Form(form): Form<TokenRequest>,
 ) -> Result<Json<TokenResponse>, ApiError> {
@@ -448,7 +542,17 @@ async fn handle_refresh_token(
 // GET /oidc/userinfo
 // ===========================================================================
 
-async fn userinfo(
+#[utoipa::path(
+    get,
+    path = "/oidc/userinfo",
+    tag = "OIDC",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, description = "User info", body = UserinfoResponse),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn userinfo(
     State(state): State<AppState>,
     auth: crate::auth::middleware::AuthUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -484,14 +588,23 @@ async fn userinfo(
 // POST /oidc/revoke
 // ===========================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RevokeRequest {
     pub token: String,
     #[serde(default)]
     pub token_type_hint: Option<String>,
 }
 
-async fn revoke(
+#[utoipa::path(
+    post,
+    path = "/oidc/revoke",
+    tag = "OIDC",
+    request_body = RevokeRequest,
+    responses(
+        (status = 200, description = "Token revoked"),
+    ),
+)]
+pub async fn revoke(
     State(state): State<AppState>,
     Form(form): Form<RevokeRequest>,
 ) -> Result<StatusCode, ApiError> {

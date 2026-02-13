@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::db::schema::users;
 
@@ -37,7 +38,7 @@ pub struct NewUser {
 }
 
 /// Public-facing user response (no sensitive fields).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserResponse {
     pub id: String,
     pub username: String,
@@ -69,7 +70,7 @@ impl From<User> for UserResponse {
 }
 
 /// Public-facing user profile (excludes email, status, updated_at).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PublicUserResponse {
     pub id: String,
     pub username: String,
