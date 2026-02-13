@@ -1,10 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { startLogin } from "@/lib/oidc";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
 function LoginPage() {
+  const navigate = useNavigate();
+
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="w-full max-w-sm space-y-6 rounded-lg border border-border bg-card p-8 shadow-lg">
@@ -16,9 +20,19 @@ function LoginPage() {
             Connect with your community
           </p>
         </div>
-        <button className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-          Sign in with OIDC
-        </button>
+        <Button className="w-full" onClick={() => startLogin()}>
+          Sign in
+        </Button>
+        <p className="text-center text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/signup" })}
+            className="text-primary underline underline-offset-4 hover:text-primary/80"
+          >
+            Create one
+          </button>
+        </p>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
@@ -17,6 +18,11 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedCommunityCommunityIdRouteImport } from './routes/_authenticated/community/$communityId'
 import { Route as AuthenticatedCommunityCommunityIdChannelChannelIdRouteImport } from './routes/_authenticated/community/$communityId/channel/$channelId'
 
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/callback': typeof CallbackRoute
   '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
   '/community/$communityId/channel/$channelId': typeof AuthenticatedCommunityCommunityIdChannelChannelIdRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/': typeof AuthenticatedIndexRoute
   '/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/callback': typeof CallbackRoute
   '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
     | '/'
     | '/callback'
     | '/login'
+    | '/signup'
     | '/settings'
     | '/community/$communityId'
     | '/community/$communityId/channel/$channelId'
@@ -93,6 +103,7 @@ export interface FileRouteTypes {
   to:
     | '/callback'
     | '/login'
+    | '/signup'
     | '/settings'
     | '/'
     | '/community/$communityId'
@@ -102,6 +113,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/callback'
     | '/login'
+    | '/signup'
     | '/_authenticated/settings'
     | '/_authenticated/'
     | '/_authenticated/community/$communityId'
@@ -112,10 +124,18 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   CallbackRoute: typeof CallbackRoute
   LoginRoute: typeof LoginRoute
+  SignupRoute: typeof SignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   CallbackRoute: CallbackRoute,
   LoginRoute: LoginRoute,
+  SignupRoute: SignupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

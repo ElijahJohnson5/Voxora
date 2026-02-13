@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark" | "system";
 
@@ -17,17 +17,27 @@ function getSystemTheme(): "light" | "dark" {
     : "light";
 }
 
-let currentTheme: Theme = "system";
+function applyTheme(theme: Theme) {
+  const resolved = theme === "system" ? getSystemTheme() : theme;
+  document.documentElement.classList.toggle("dark", resolved === "dark");
+}
+
+let currentTheme: Theme = getStoredTheme();
 const listeners = new Set<() => void>();
 
 function notify() {
   for (const listener of listeners) listener();
 }
 
-function applyTheme(theme: Theme) {
-  const resolved = theme === "system" ? getSystemTheme() : theme;
-  document.documentElement.classList.toggle("dark", resolved === "dark");
-}
+// Apply immediately (supplements the inline script in index.html)
+applyTheme(currentTheme);
+
+// Listen for OS theme changes
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", () => {
+    if (currentTheme === "system") applyTheme("system");
+  });
 
 export function setTheme(theme: Theme) {
   currentTheme = theme;
@@ -47,20 +57,5 @@ function getSnapshot(): Theme {
 
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot);
-
-  // Initialize on first mount and listen for system changes
-  useEffect(() => {
-    currentTheme = getStoredTheme();
-    applyTheme(currentTheme);
-    notify();
-
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if (currentTheme === "system") applyTheme("system");
-    };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-
   return { theme, setTheme };
 }

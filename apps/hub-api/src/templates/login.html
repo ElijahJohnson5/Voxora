@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" class="{{theme_class}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — Voxora</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              background: "var(--bg)",
+              foreground: "var(--fg)",
+              card: "var(--bg)",
+              "card-foreground": "var(--fg)",
+              primary: "var(--primary)",
+              "primary-foreground": "var(--primary-fg)",
+              muted: "var(--muted)",
+              "muted-foreground": "var(--muted-fg)",
+              border: "var(--border)",
+              input: "var(--border)",
+              ring: "var(--ring)",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        --bg: hsl(0 0% 100%);
+        --fg: hsl(240 10% 3.9%);
+        --primary: hsl(240 5.9% 10%);
+        --primary-fg: hsl(0 0% 98%);
+        --muted: hsl(240 4.8% 95.9%);
+        --muted-fg: hsl(240 3.8% 46.1%);
+        --border: hsl(240 5.9% 90%);
+        --ring: hsl(240 5.9% 10%);
+      }
+      .dark {
+        --bg: hsl(240 10% 3.9%);
+        --fg: hsl(0 0% 98%);
+        --primary: hsl(0 0% 98%);
+        --primary-fg: hsl(240 5.9% 10%);
+        --muted: hsl(240 3.7% 15.9%);
+        --muted-fg: hsl(240 5% 64.9%);
+        --border: hsl(240 3.7% 15.9%);
+        --ring: hsl(240 4.9% 83.9%);
+      }
+    </style>
+    <script>
+      // If no theme class was set by the server, fall back to system preference
+      (function () {
+        var html = document.documentElement;
+        if (!html.classList.contains("dark") && !html.classList.contains("light")) {
+          if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            html.classList.add("dark");
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body
+    class="flex min-h-screen items-center justify-center bg-background text-foreground"
+  >
+    <div
+      class="w-full max-w-sm space-y-6 rounded-lg border border-border bg-card p-8 shadow-lg"
+    >
+      <div class="space-y-2 text-center">
+        <h1 class="text-2xl font-bold tracking-tight">Sign in to Voxora</h1>
+        <p class="text-sm text-muted-foreground">
+          Enter your credentials to continue
+        </p>
+      </div>
+
+      <form method="POST" action="/oidc/authorize" class="space-y-4">
+        <input type="hidden" name="response_type" value="{{response_type}}" />
+        <input type="hidden" name="client_id" value="{{client_id}}" />
+        <input type="hidden" name="redirect_uri" value="{{redirect_uri}}" />
+        <input type="hidden" name="scope" value="{{scope}}" />
+        <input type="hidden" name="state" value="{{state}}" />
+        <input type="hidden" name="code_challenge" value="{{code_challenge}}" />
+        <input type="hidden" name="code_challenge_method" value="S256" />
+        <input type="hidden" name="nonce" value="{{nonce}}" />
+
+        <div class="space-y-1">
+          <label for="login" class="text-sm font-medium"
+            >Username or email</label
+          >
+          <input
+            id="login"
+            name="login"
+            required
+            autocomplete="username"
+            class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label for="password" class="text-sm font-medium">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autocomplete="current-password"
+            class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          Log in
+        </button>
+      </form>
+    </div>
+  </body>
+</html>

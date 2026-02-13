@@ -164,6 +164,8 @@ pub struct AuthorizeParams {
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<String>,
     pub nonce: Option<String>,
+    /// Theme hint from the SPA ("dark", "light", or empty for system).
+    pub theme: Option<String>,
 }
 
 /// Render a minimal HTML login form.
@@ -188,33 +190,23 @@ pub async fn authorize(Query(params): Query<AuthorizeParams>) -> Response {
         return (StatusCode::BAD_REQUEST, "PKCE with S256 is required").into_response();
     }
 
-    // Render a simple login form that POSTs back to the same path with the OIDC params embedded.
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html><head><title>Voxora Login</title></head>
-<body style="font-family:system-ui;max-width:400px;margin:80px auto">
-<h2>Sign in to Voxora</h2>
-<form method="POST" action="/oidc/authorize">
-  <input type="hidden" name="response_type" value="{}" />
-  <input type="hidden" name="client_id" value="{}" />
-  <input type="hidden" name="redirect_uri" value="{}" />
-  <input type="hidden" name="scope" value="{}" />
-  <input type="hidden" name="state" value="{}" />
-  <input type="hidden" name="code_challenge" value="{}" />
-  <input type="hidden" name="code_challenge_method" value="S256" />
-  <input type="hidden" name="nonce" value="{}" />
-  <label>Username or email<br/><input name="login" required style="width:100%;padding:8px;margin:4px 0 12px" /></label>
-  <label>Password<br/><input name="password" type="password" required style="width:100%;padding:8px;margin:4px 0 12px" /></label>
-  <button type="submit" style="width:100%;padding:10px;cursor:pointer">Log in</button>
-</form></body></html>"#,
-        params.response_type,
-        params.client_id,
-        params.redirect_uri,
-        params.scope.as_deref().unwrap_or("openid"),
-        params.state.as_deref().unwrap_or(""),
-        params.code_challenge.as_deref().unwrap_or(""),
-        params.nonce.as_deref().unwrap_or("")
-    );
+    // Resolve theme class: "dark", "light", or "" (let client JS detect system preference).
+    let theme_class = match params.theme.as_deref() {
+        Some("dark") => "dark",
+        Some("light") => "light",
+        _ => "",
+    };
+
+    // Render login form from template with OIDC params injected.
+    let html = include_str!("../templates/login.html")
+        .replace("{{theme_class}}", theme_class)
+        .replace("{{response_type}}", &params.response_type)
+        .replace("{{client_id}}", &params.client_id)
+        .replace("{{redirect_uri}}", &params.redirect_uri)
+        .replace("{{scope}}", params.scope.as_deref().unwrap_or("openid"))
+        .replace("{{state}}", params.state.as_deref().unwrap_or(""))
+        .replace("{{code_challenge}}", params.code_challenge.as_deref().unwrap_or(""))
+        .replace("{{nonce}}", params.nonce.as_deref().unwrap_or(""));
     Html(html).into_response()
 }
 

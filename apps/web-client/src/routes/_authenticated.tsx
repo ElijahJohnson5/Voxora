@@ -2,12 +2,11 @@ import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MemberList } from "@/components/layout/member-list";
 import { Header } from "@/components/layout/header";
+import { useAuthStore } from "@/stores/auth";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: () => {
-    // TODO (C-2): Check auth state from Zustand store
-    const isAuthenticated = true;
-    if (!isAuthenticated) {
+    if (!useAuthStore.getState().isAuthenticated()) {
       throw redirect({ to: "/login" });
     }
   },
