@@ -4,7 +4,7 @@ use diesel::result::OptionalExtension;
 use crate::db::pool::DbPool;
 use crate::db::schema::{communities, community_members, roles};
 use crate::error::ApiError;
-use crate::models::community_member::CommunityMember;
+use crate::models::community_member::CommunityMemberRow;
 
 // Permission bitflags (RFC §7.2.2)
 pub const VIEW_CHANNEL: i64 = 1 << 0;
@@ -54,10 +54,10 @@ pub async fn check_permission(
     let mut conn = pool.get().await?;
 
     // Get community member record.
-    let member: CommunityMember = diesel_async::RunQueryDsl::get_result(
+    let member: CommunityMemberRow = diesel_async::RunQueryDsl::get_result(
         community_members::table
             .find((community_id, user_id))
-            .select(CommunityMember::as_select()),
+            .select(CommunityMemberRow::as_select()),
         &mut conn,
     )
     .await

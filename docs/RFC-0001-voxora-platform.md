@@ -2148,23 +2148,23 @@ E2EE is **not** in MVP scope. When implemented:
 
 **Goal**: Basic functioning system with text chat.
 
-- [ ] Hub: OIDC provider (authorization code + PKCE)
-- [ ] Hub: User registration (email + password)
-- [ ] Hub: SIA issuance and JWKS
-- [ ] Hub: Pod registry (register, heartbeat, list)
-- [ ] Hub: User profiles
-- [ ] Pod: SIA validation and local user creation
-- [ ] Pod: Community CRUD
-- [ ] Pod: Channel CRUD (text only)
-- [ ] Pod: Messages (send, edit, delete, history)
-- [ ] Pod: Reactions
-- [ ] Pod: WebSocket Gateway (core events)
-- [ ] Pod: Basic RBAC (admin, moderator, member)
-- [ ] Pod: Invites
-- [ ] Web Client: Login flow
-- [ ] Web Client: Community/channel navigation
-- [ ] Web Client: Message sending and receiving
-- [ ] Web Client: Basic settings
+- [x] Hub: OIDC provider (authorization code + PKCE)
+- [x] Hub: User registration (email + password)
+- [x] Hub: SIA issuance and JWKS
+- [x] Hub: Pod registry (register, heartbeat, list)
+- [x] Hub: User profiles
+- [x] Pod: SIA validation and local user creation
+- [x] Pod: Community CRUD
+- [x] Pod: Channel CRUD (text only)
+- [x] Pod: Messages (send, edit, delete, history)
+- [x] Pod: Reactions
+- [x] Pod: WebSocket Gateway (core events)
+- [x] Pod: Basic RBAC (admin, moderator, member)
+- [x] Pod: Invites
+- [x] Web Client: Login flow
+- [x] Web Client: Community/channel navigation
+- [x] Web Client: Message sending and receiving
+- [x] Web Client: Basic settings
 
 ### Phase 2: Beta (Months 5-8)
 

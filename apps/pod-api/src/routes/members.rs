@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{communities, community_members};
+use crate::db::schema::{communities, community_members, pod_users};
 use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
-use crate::models::community_member::CommunityMember;
+use crate::models::community_member::{CommunityMember, CommunityMemberRow};
 use crate::permissions;
 use crate::AppState;
 
@@ -78,23 +78,38 @@ pub async fn list_members(
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
     let mut query = community_members::table
+        .inner_join(pod_users::table.on(pod_users::id.eq(community_members::user_id)))
         .filter(community_members::community_id.eq(&community_id))
         .order((
             community_members::joined_at.asc(),
             community_members::user_id.asc(),
         ))
         .limit(limit + 1)
-        .select(CommunityMember::as_select())
+        .select((CommunityMemberRow::as_select(), (pod_users::display_name, pod_users::username, pod_users::avatar_url)))
         .into_boxed();
 
     if let Some(after) = &params.after {
         query = query.filter(community_members::user_id.gt(after));
     }
 
-    let rows: Vec<CommunityMember> = diesel_async::RunQueryDsl::load(query, &mut conn).await?;
+    let rows: Vec<(CommunityMemberRow, (String, String, Option<String>))> =
+        diesel_async::RunQueryDsl::load(query, &mut conn).await?;
 
     let has_more = rows.len() as i64 > limit;
-    let data: Vec<CommunityMember> = rows.into_iter().take(limit as usize).collect();
+    let data: Vec<CommunityMember> = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(|(row, (display_name, username, avatar_url))| CommunityMember {
+            community_id: row.community_id,
+            user_id: row.user_id,
+            nickname: row.nickname,
+            roles: row.roles,
+            joined_at: row.joined_at,
+            display_name,
+            username,
+            avatar_url,
+        })
+        .collect();
 
     Ok(Json(ListMembersResponse { data, has_more }))
 }
@@ -128,15 +143,29 @@ pub async fn get_member(
 ) -> Result<Json<CommunityMember>, ApiError> {
     let mut conn = state.db.get().await?;
 
-    let member: CommunityMember = diesel_async::RunQueryDsl::get_result(
-        community_members::table
-            .find((&path.community_id, &path.user_id))
-            .select(CommunityMember::as_select()),
-        &mut conn,
-    )
-    .await
-    .optional()?
-    .ok_or_else(|| ApiError::not_found("Member not found"))?;
+    let (row, (display_name, username, avatar_url)): (CommunityMemberRow, (String, String, Option<String>)) =
+        diesel_async::RunQueryDsl::get_result(
+            community_members::table
+                .inner_join(pod_users::table.on(pod_users::id.eq(community_members::user_id)))
+                .filter(community_members::community_id.eq(&path.community_id))
+                .filter(community_members::user_id.eq(&path.user_id))
+                .select((CommunityMemberRow::as_select(), (pod_users::display_name, pod_users::username, pod_users::avatar_url))),
+            &mut conn,
+        )
+        .await
+        .optional()?
+        .ok_or_else(|| ApiError::not_found("Member not found"))?;
+
+    let member = CommunityMember {
+        community_id: row.community_id,
+        user_id: row.user_id,
+        nickname: row.nickname,
+        roles: row.roles,
+        joined_at: row.joined_at,
+        display_name,
+        username,
+        avatar_url,
+    };
 
     Ok(Json(member))
 }
@@ -255,10 +284,10 @@ pub async fn update_member(
     let mut conn = state.db.get().await?;
 
     // Look up existing member.
-    let existing: CommunityMember = diesel_async::RunQueryDsl::get_result(
+    let existing: CommunityMemberRow = diesel_async::RunQueryDsl::get_result(
         community_members::table
             .find((&path.community_id, &path.user_id))
-            .select(CommunityMember::as_select()),
+            .select(CommunityMemberRow::as_select()),
         &mut conn,
     )
     .await
@@ -304,16 +333,37 @@ pub async fn update_member(
         None => existing.roles.clone(),
     };
 
-    let updated: CommunityMember = diesel_async::RunQueryDsl::get_result(
+    let updated_row: CommunityMemberRow = diesel_async::RunQueryDsl::get_result(
         diesel::update(community_members::table.find((&path.community_id, &path.user_id)))
             .set((
                 community_members::nickname.eq(&updated_nickname),
                 community_members::roles.eq(&updated_roles),
             ))
-            .returning(CommunityMember::as_returning()),
+            .returning(CommunityMemberRow::as_returning()),
         &mut conn,
     )
     .await?;
+
+    // Re-query to get user info from the join.
+    let (display_name, username, avatar_url): (String, String, Option<String>) =
+        diesel_async::RunQueryDsl::get_result(
+            pod_users::table
+                .filter(pod_users::id.eq(&path.user_id))
+                .select((pod_users::display_name, pod_users::username, pod_users::avatar_url)),
+            &mut conn,
+        )
+        .await?;
+
+    let updated = CommunityMember {
+        community_id: updated_row.community_id,
+        user_id: updated_row.user_id,
+        nickname: updated_row.nickname,
+        roles: updated_row.roles,
+        joined_at: updated_row.joined_at,
+        display_name,
+        username,
+        avatar_url,
+    };
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: path.community_id,

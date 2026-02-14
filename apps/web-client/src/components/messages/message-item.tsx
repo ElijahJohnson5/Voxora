@@ -1,9 +1,10 @@
-import { memo, useMemo, useCallback } from "react";
+import { memo, useCallback, useEffect } from "react";
 import type { Value } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import type { Message } from "@/stores/messages";
 import { useMessageStore, type Reaction } from "@/stores/messages";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useCommunityStore } from "@/stores/communities";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,8 +50,12 @@ function formatTimestamp(dateStr: string): string {
   return `${date.toLocaleDateString()} ${time}`;
 }
 
-function getInitials(id: string): string {
-  return id.slice(0, 2).toUpperCase();
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
 export const MessageItem = memo(function MessageItem({
@@ -67,9 +72,19 @@ export const MessageItem = memo(function MessageItem({
   const reactions: Reaction[] =
     useMessageStore((s) => s.reactions[message.id]) ?? [];
 
-  const authorDisplay = useMemo(() => {
-    return message.author_id.slice(0, 8);
-  }, [message.author_id]);
+  const activeCommunityId = useCommunityStore((s) => s.activeCommunityId);
+  const member = useCommunityStore((s) => {
+    if (!activeCommunityId) return undefined;
+    const list = s.members[activeCommunityId];
+    return list?.find((m) => m.user_id === message.author_id);
+  });
+
+  const authorDisplay =
+    member?.nickname ??
+    member?.display_name ??
+    member?.username ??
+    message.author_id.slice(0, 8);
+  const avatarUrl = member?.avatar_url;
 
   const handleSaveEdit = useCallback(
     async (content: string) => {
@@ -96,7 +111,7 @@ export const MessageItem = memo(function MessageItem({
     return (
       <div
         className={cn(
-          "group relative flex items-start gap-3 py-0.5 pl-13 pr-4 hover:bg-accent/50",
+          "group relative flex items-start gap-3 py-1 pl-15 pr-4 hover:bg-accent/50",
           pending && "opacity-50",
         )}
       >
@@ -152,14 +167,15 @@ export const MessageItem = memo(function MessageItem({
   return (
     <div
       className={cn(
-        "group relative flex items-start gap-3 pt-2 pb-1 pr-4 hover:bg-accent/50",
+        "group relative flex items-start gap-3 pt-2 pl-2 pb-1 pr-4 hover:bg-accent/50",
         pending && "opacity-50",
       )}
     >
       {/* Avatar */}
       <Avatar className="mt-0.5 size-10 shrink-0">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt={authorDisplay} />}
         <AvatarFallback className="text-xs">
-          {getInitials(message.author_id)}
+          {getInitials(authorDisplay)}
         </AvatarFallback>
       </Avatar>
 
@@ -277,6 +293,10 @@ function EditForm({
     value: parseEditValue(content),
   });
 
+  useEffect(() => {
+    editor.tf.focus({ edge: "endEditor" });
+  }, [editor]);
+
   const handleSave = useCallback(() => {
     const value = editor.children as Value;
     const serialized = serializeEditValue(value);
@@ -304,7 +324,6 @@ function EditForm({
           <EditorContainer variant="comment">
             <Editor
               variant="comment"
-              autoFocus
               onKeyDown={handleKeyDown}
               className="min-h-10 max-h-50 overflow-y-auto px-3 py-2 text-sm"
             />

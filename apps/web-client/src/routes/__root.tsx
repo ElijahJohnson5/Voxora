@@ -21,7 +21,7 @@ function RootLayout() {
       <Outlet />
       <Toaster richColors position="bottom-right" />
       <Suspense>
-        <TanStackRouterDevtools />
+        <TanStackRouterDevtools position="bottom-right" />
       </Suspense>
     </div>
   );

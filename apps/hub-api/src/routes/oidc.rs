@@ -154,6 +154,47 @@ pub async fn jwks(State(state): State<AppState>) -> Json<serde_json::Value> {
 // POST /oidc/authorize (processes the login form)
 // ===========================================================================
 
+#[allow(clippy::too_many_arguments)]
+fn render_login(
+    theme_class: &str,
+    response_type: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    scope: &str,
+    state: &str,
+    code_challenge: &str,
+    nonce: &str,
+    error_message: &str,
+    login_value: &str,
+) -> String {
+    let error_html = if error_message.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">{}</div>"#,
+            html_escape(error_message),
+        )
+    };
+    include_str!("../templates/login.html")
+        .replace("{{theme_class}}", theme_class)
+        .replace("{{response_type}}", response_type)
+        .replace("{{client_id}}", client_id)
+        .replace("{{redirect_uri}}", redirect_uri)
+        .replace("{{scope}}", scope)
+        .replace("{{state}}", state)
+        .replace("{{code_challenge}}", code_challenge)
+        .replace("{{nonce}}", nonce)
+        .replace("{{error_html}}", &error_html)
+        .replace("{{login_value}}", &html_escape(login_value))
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AuthorizeParams {
     pub response_type: String,
@@ -198,15 +239,18 @@ pub async fn authorize(Query(params): Query<AuthorizeParams>) -> Response {
     };
 
     // Render login form from template with OIDC params injected.
-    let html = include_str!("../templates/login.html")
-        .replace("{{theme_class}}", theme_class)
-        .replace("{{response_type}}", &params.response_type)
-        .replace("{{client_id}}", &params.client_id)
-        .replace("{{redirect_uri}}", &params.redirect_uri)
-        .replace("{{scope}}", params.scope.as_deref().unwrap_or("openid"))
-        .replace("{{state}}", params.state.as_deref().unwrap_or(""))
-        .replace("{{code_challenge}}", params.code_challenge.as_deref().unwrap_or(""))
-        .replace("{{nonce}}", params.nonce.as_deref().unwrap_or(""));
+    let html = render_login(
+        theme_class,
+        &params.response_type,
+        &params.client_id,
+        &params.redirect_uri,
+        params.scope.as_deref().unwrap_or("openid"),
+        params.state.as_deref().unwrap_or(""),
+        params.code_challenge.as_deref().unwrap_or(""),
+        params.nonce.as_deref().unwrap_or(""),
+        "",
+        "",
+    );
     Html(html).into_response()
 }
 
@@ -238,20 +282,42 @@ pub struct AuthorizeSubmit {
 pub async fn authorize_submit(
     State(state): State<AppState>,
     Form(form): Form<AuthorizeSubmit>,
-) -> Result<Response, ApiError> {
-    if form.client_id != CLIENT_ID {
-        return Err(ApiError::bad_request("unknown client_id"));
+) -> Response {
+    // Macro to re-render the login form with an error message.
+    macro_rules! login_err {
+        ($msg:expr) => {
+            return Html(render_login(
+                "",
+                &form.response_type,
+                &form.client_id,
+                &form.redirect_uri,
+                form.scope.as_deref().unwrap_or("openid"),
+                form.state.as_deref().unwrap_or(""),
+                form.code_challenge.as_deref().unwrap_or(""),
+                form.nonce.as_deref().unwrap_or(""),
+                $msg,
+                &form.login,
+            ))
+            .into_response()
+        };
     }
-    let code_challenge = form
-        .code_challenge
-        .as_deref()
-        .ok_or_else(|| ApiError::bad_request("code_challenge is required"))?;
+
+    if form.client_id != CLIENT_ID {
+        login_err!("Invalid request");
+    }
+    let code_challenge = match form.code_challenge.as_deref() {
+        Some(c) => c.to_string(),
+        None => login_err!("Invalid request"),
+    };
 
     // Look up user by username (case-insensitive) or email.
     let login_lower = form.login.trim().to_lowercase();
-    let mut conn = state.db.get().await?;
+    let mut conn = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => login_err!("Something went wrong. Please try again."),
+    };
 
-    let user: User = users::table
+    let user: Option<User> = match users::table
         .filter(
             users::username_lower
                 .eq(&login_lower)
@@ -261,15 +327,24 @@ pub async fn authorize_submit(
         .first(&mut conn)
         .await
         .optional()
-        .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::unauthorized("Invalid credentials"))?;
+    {
+        Ok(u) => u,
+        Err(_) => login_err!("Something went wrong. Please try again."),
+    };
+
+    let user = match user {
+        Some(u) => u,
+        None => login_err!("Invalid username or password"),
+    };
 
     // Verify password.
-    let hash = user
-        .password_hash
-        .as_deref()
-        .ok_or_else(|| ApiError::unauthorized("Invalid credentials"))?;
-    verify_password(&form.password, hash)?;
+    let hash = match user.password_hash.as_deref() {
+        Some(h) => h,
+        None => login_err!("Invalid username or password"),
+    };
+    if verify_password(&form.password, hash).is_err() {
+        login_err!("Invalid username or password");
+    }
 
     // Generate authorization code.
     let code = generate_opaque_token("hac", 32);
@@ -291,7 +366,12 @@ pub async fn authorize_submit(
         nonce: form.nonce.clone(),
     };
 
-    tokens::store_auth_code(state.kv.as_ref(), &code, &code_data).await?;
+    if tokens::store_auth_code(state.kv.as_ref(), &code, &code_data)
+        .await
+        .is_err()
+    {
+        login_err!("Something went wrong. Please try again.");
+    }
 
     // Build redirect URI with code + state.
     let sep = if form.redirect_uri.contains('?') {
@@ -304,7 +384,7 @@ pub async fn authorize_submit(
         redirect.push_str(&format!("&state={}", st));
     }
 
-    Ok(Redirect::to(&redirect).into_response())
+    Redirect::to(&redirect).into_response()
 }
 
 // ===========================================================================

@@ -9,7 +9,7 @@ use crate::auth::tokens;
 use crate::db::schema::{channels, communities, community_members, roles};
 use crate::models::channel::Channel;
 use crate::models::community::Community;
-use crate::models::community_member::CommunityMember;
+use crate::models::community_member::CommunityMemberRow;
 use crate::models::pod_user::PodUser;
 use crate::models::role::Role;
 use crate::AppState;
@@ -46,10 +46,10 @@ pub async fn handle_identify(
     .map_err(|_| "User not found")?;
 
     // Load community memberships.
-    let memberships: Vec<CommunityMember> = diesel_async::RunQueryDsl::load(
+    let memberships: Vec<CommunityMemberRow> = diesel_async::RunQueryDsl::load(
         community_members::table
             .filter(community_members::user_id.eq(&user_id))
-            .select(CommunityMember::as_select()),
+            .select(CommunityMemberRow::as_select()),
         &mut conn,
     )
     .await

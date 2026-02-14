@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, Users } from "lucide-react";
 import { useCommunityStore, type CommunityMember, type Role } from "@/stores/communities";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MemberGroup {
@@ -116,21 +116,29 @@ export function MemberList() {
               <h3 className="mb-1 px-2 text-xs font-semibold uppercase text-muted-foreground">
                 {group.label}
               </h3>
-              {group.members.map((member) => (
-                <div
-                  key={member.user_id}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent"
-                >
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-xs font-medium">
-                      {(member.nickname ?? member.user_id)[0]?.toUpperCase() ?? "?"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="truncate text-sm">
-                    {member.nickname ?? member.user_id}
-                  </span>
-                </div>
-              ))}
+              {group.members.map((member) => {
+                const displayName = member.display_name ?? member.username;
+                const showNickname = member.nickname && member.nickname !== displayName;
+                return (
+                  <div
+                    key={member.user_id}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent"
+                  >
+                    <Avatar className="h-7 w-7">
+                      {member.avatar_url && <AvatarImage src={member.avatar_url} alt={displayName} />}
+                      <AvatarFallback className="text-xs font-medium">
+                        {displayName[0]?.toUpperCase() ?? "?"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate text-sm">
+                      {displayName}
+                      {showNickname && (
+                        <span className="ml-1 text-xs text-muted-foreground">({member.nickname})</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

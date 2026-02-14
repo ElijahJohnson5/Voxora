@@ -2,8 +2,9 @@
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use serde::Serialize;
 use chrono::{Duration, Utc};
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
@@ -14,11 +15,11 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{bans, communities, community_members, invites};
+use crate::db::schema::{bans, communities, community_members, invites, pod_users};
 use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
-use crate::models::community_member::{CommunityMember, NewCommunityMember};
+use crate::models::community_member::{CommunityMember, CommunityMemberRow, NewCommunityMember};
 use crate::models::invite::{Invite, NewInvite};
 use crate::permissions;
 use crate::AppState;
@@ -33,6 +34,7 @@ pub fn router() -> Router<AppState> {
             "/communities/{community_id}/invites/{code}",
             delete(delete_invite),
         )
+        .route("/invites/{code}", get(get_invite))
         .route("/invites/{code}/accept", post(accept_invite))
 }
 
@@ -238,6 +240,83 @@ pub async fn delete_invite(
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/invites/:code
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct InviteInfoResponse {
+    pub code: String,
+    pub community_name: String,
+    pub community_icon_url: Option<String>,
+    pub member_count: i32,
+    pub inviter_username: String,
+    pub inviter_display_name: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/invites/{code}",
+    tag = "Invites",
+    params(
+        ("code" = String, Path, description = "Invite code"),
+    ),
+    responses(
+        (status = 200, description = "Invite info", body = InviteInfoResponse),
+        (status = 404, description = "Not found", body = ApiErrorBody),
+    )
+)]
+pub async fn get_invite(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> Result<Json<InviteInfoResponse>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let invite: Invite = diesel_async::RunQueryDsl::get_result(
+        invites::table.find(&code).select(Invite::as_select()),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Invite not found"))?;
+
+    // Check not expired.
+    if let Some(expires_at) = invite.expires_at {
+        if expires_at < Utc::now() {
+            return Err(ApiError::not_found("Invite not found"));
+        }
+    }
+
+    // Fetch community info.
+    let (community_name, community_icon_url, member_count): (String, Option<String>, i32) =
+        diesel_async::RunQueryDsl::get_result(
+            communities::table
+                .find(&invite.community_id)
+                .select((communities::name, communities::icon_url, communities::member_count)),
+            &mut conn,
+        )
+        .await?;
+
+    // Fetch inviter info.
+    let (inviter_username, inviter_display_name): (String, String) =
+        diesel_async::RunQueryDsl::get_result(
+            pod_users::table
+                .find(&invite.inviter_id)
+                .select((pod_users::username, pod_users::display_name)),
+            &mut conn,
+        )
+        .await?;
+
+    Ok(Json(InviteInfoResponse {
+        code: invite.code,
+        community_name,
+        community_icon_url,
+        member_count,
+        inviter_username,
+        inviter_display_name,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/invites/:code/accept
 // ---------------------------------------------------------------------------
 
@@ -289,10 +368,10 @@ pub async fn accept_invite(
     }
 
     // Check not already a member.
-    let existing: Option<CommunityMember> = diesel_async::RunQueryDsl::get_result(
+    let existing: Option<CommunityMemberRow> = diesel_async::RunQueryDsl::get_result(
         community_members::table
             .find((&invite.community_id, &user_id))
-            .select(CommunityMember::as_select()),
+            .select(CommunityMemberRow::as_select()),
         &mut conn,
     )
     .await
@@ -321,11 +400,12 @@ pub async fn accept_invite(
     // Transaction: insert member + increment use_count + increment member_count.
     let now = Utc::now();
     let community_id = invite.community_id.clone();
+    let user_id_clone = user_id.clone();
 
-    let member = conn
+    let member_row = conn
         .transaction::<_, ApiError, _>(|conn| {
             async move {
-                let member: CommunityMember = diesel_async::RunQueryDsl::get_result(
+                let row: CommunityMemberRow = diesel_async::RunQueryDsl::get_result(
                     diesel::insert_into(community_members::table)
                         .values(NewCommunityMember {
                             community_id: &community_id,
@@ -334,7 +414,7 @@ pub async fn accept_invite(
                             roles: vec![],
                             joined_at: now,
                         })
-                        .returning(CommunityMember::as_returning()),
+                        .returning(CommunityMemberRow::as_returning()),
                     conn,
                 )
                 .await?;
@@ -353,11 +433,32 @@ pub async fn accept_invite(
                 )
                 .await?;
 
-                Ok(member)
+                Ok(row)
             }
             .scope_boxed()
         })
         .await?;
+
+    // Enrich with user info.
+    let (display_name, username, avatar_url): (String, String, Option<String>) =
+        diesel_async::RunQueryDsl::get_result(
+            pod_users::table
+                .filter(pod_users::id.eq(&user_id_clone))
+                .select((pod_users::display_name, pod_users::username, pod_users::avatar_url)),
+            &mut conn,
+        )
+        .await?;
+
+    let member = CommunityMember {
+        community_id: member_row.community_id,
+        user_id: member_row.user_id,
+        nickname: member_row.nickname,
+        roles: member_row.roles,
+        joined_at: member_row.joined_at,
+        display_name,
+        username,
+        avatar_url,
+    };
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: invite.community_id,

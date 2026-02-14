@@ -260,6 +260,22 @@ export interface paths {
         patch: operations["update_community"];
         trace?: never;
     };
+    "/api/v1/invites/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_invite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invites/{code}/accept": {
         parameters: {
             query?: never;
@@ -350,13 +366,17 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Enriched member returned by the API (member + user info). */
         CommunityMember: {
+            avatar_url?: string | null;
             community_id: string;
+            display_name: string;
             /** Format: date-time */
             joined_at: string;
             nickname?: string | null;
             roles: string[];
             user_id: string;
+            username: string;
         };
         CommunityResponse: components["schemas"]["Community"] & {
             channels: components["schemas"]["Channel"][];
@@ -415,6 +435,15 @@ export interface components {
             max_uses?: number | null;
             /** Format: int32 */
             use_count: number;
+        };
+        InviteInfoResponse: {
+            code: string;
+            community_icon_url?: string | null;
+            community_name: string;
+            inviter_display_name: string;
+            inviter_username: string;
+            /** Format: int32 */
+            member_count: number;
         };
         ListMembersResponse: {
             data: components["schemas"]["CommunityMember"][];
@@ -2044,6 +2073,38 @@ export interface operations {
                 };
             };
             /** @description Community not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    get_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Invite code */
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invite info */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteInfoResponse"];
+                };
+            };
+            /** @description Not found */
             404: {
                 headers: {
                     [name: string]: unknown;

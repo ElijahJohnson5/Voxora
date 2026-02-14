@@ -246,14 +246,14 @@ export function MessageList({ channelId }: MessageListProps) {
 
       {!isAtBottom && allItems.length > 0 && (
         <div className="absolute inset-x-0 bottom-0 flex justify-center pb-2">
-          <Button
+          <button
             type="button"
             onClick={scrollToBottom}
             className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-md backdrop-blur transition-colors hover:text-foreground"
           >
             You are viewing older messages
             <ArrowDown className="size-3.5" />
-          </Button>
+          </button>
         </div>
       )}
     </div>

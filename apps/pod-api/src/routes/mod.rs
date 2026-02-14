@@ -87,6 +87,7 @@ impl Modify for SecurityAddon {
         invites::create_invite,
         invites::list_invites,
         invites::delete_invite,
+        invites::get_invite,
         invites::accept_invite,
         // Bans
         bans::ban_member,
@@ -128,6 +129,7 @@ impl Modify for SecurityAddon {
             roles::CreateRoleRequest,
             roles::UpdateRoleRequest,
             invites::CreateInviteRequest,
+            invites::InviteInfoResponse,
             bans::BanRequest,
         )
     ),

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { hubApi } from "@/lib/api/hub-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { startLogin } from "@/lib/oidc";
 
 export const Route = createFileRoute("/signup")({
@@ -67,9 +68,7 @@ function SignupPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <label htmlFor="username" className="text-sm font-medium">
-              Username
-            </label>
+            <Label htmlFor="username">Username</Label>
             <Input
               id="username"
               name="username"
@@ -83,9 +82,7 @@ function SignupPage() {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="display_name" className="text-sm font-medium">
-              Display name
-            </label>
+            <Label htmlFor="display_name">Display name</Label>
             <Input
               id="display_name"
               name="display_name"
@@ -100,12 +97,12 @@ function SignupPage() {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="email" className="text-sm font-medium">
+            <Label htmlFor="email">
               Email{" "}
               <span className="text-muted-foreground font-normal">
                 (optional)
               </span>
-            </label>
+            </Label>
             <Input
               id="email"
               name="email"
@@ -119,9 +116,7 @@ function SignupPage() {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="password" className="text-sm font-medium">
-              Password
-            </label>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               name="password"
