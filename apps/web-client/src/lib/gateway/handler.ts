@@ -20,6 +20,7 @@ import {
   type Community,
   type Channel,
   type Role,
+  type CommunityMember,
 } from "@/stores/communities";
 import { useMessageStore } from "@/stores/messages";
 
@@ -29,54 +30,74 @@ import { useMessageStore } from "@/stores/messages";
  * Called from `GatewayConnection.onmessage` for every op=0 event
  * that isn't READY (READY is handled inline during connect).
  */
-export function handleDispatch(event: DispatchEventName, data: unknown): void {
+export function handleDispatch(
+  event: DispatchEventName,
+  data: unknown,
+  podId: string,
+): void {
   switch (event) {
     // --- Messages ---
     case "MESSAGE_CREATE":
-      handleMessageCreate(data as DispatchPayloadMap["MESSAGE_CREATE"]);
+      handleMessageCreate(podId, data as DispatchPayloadMap["MESSAGE_CREATE"]);
       break;
     case "MESSAGE_UPDATE":
-      handleMessageUpdate(data as DispatchPayloadMap["MESSAGE_UPDATE"]);
+      handleMessageUpdate(podId, data as DispatchPayloadMap["MESSAGE_UPDATE"]);
       break;
     case "MESSAGE_DELETE":
-      handleMessageDelete(data as DispatchPayloadMap["MESSAGE_DELETE"]);
+      handleMessageDelete(podId, data as DispatchPayloadMap["MESSAGE_DELETE"]);
       break;
 
     // --- Reactions ---
     case "MESSAGE_REACTION_ADD":
-      handleReactionAdd(data as DispatchPayloadMap["MESSAGE_REACTION_ADD"]);
+      handleReactionAdd(
+        podId,
+        data as DispatchPayloadMap["MESSAGE_REACTION_ADD"],
+      );
       break;
     case "MESSAGE_REACTION_REMOVE":
       handleReactionRemove(
+        podId,
         data as DispatchPayloadMap["MESSAGE_REACTION_REMOVE"],
       );
       break;
 
     // --- Channels ---
     case "CHANNEL_CREATE":
-      handleChannelCreate(data as DispatchPayloadMap["CHANNEL_CREATE"]);
+      handleChannelCreate(
+        podId,
+        data as DispatchPayloadMap["CHANNEL_CREATE"],
+      );
       break;
     case "CHANNEL_UPDATE":
-      handleChannelUpdate(data as DispatchPayloadMap["CHANNEL_UPDATE"]);
+      handleChannelUpdate(
+        podId,
+        data as DispatchPayloadMap["CHANNEL_UPDATE"],
+      );
       break;
     case "CHANNEL_DELETE":
-      handleChannelDelete(data as DispatchPayloadMap["CHANNEL_DELETE"]);
+      handleChannelDelete(
+        podId,
+        data as DispatchPayloadMap["CHANNEL_DELETE"],
+      );
       break;
 
     // --- Communities ---
     case "COMMUNITY_UPDATE":
-      handleCommunityUpdate(data as DispatchPayloadMap["COMMUNITY_UPDATE"]);
+      handleCommunityUpdate(
+        podId,
+        data as DispatchPayloadMap["COMMUNITY_UPDATE"],
+      );
       break;
 
     // --- Members ---
     case "MEMBER_JOIN":
-      handleMemberJoin(data as DispatchPayloadMap["MEMBER_JOIN"]);
+      handleMemberJoin(podId, data as DispatchPayloadMap["MEMBER_JOIN"]);
       break;
     case "MEMBER_LEAVE":
-      handleMemberLeave(data as DispatchPayloadMap["MEMBER_LEAVE"]);
+      handleMemberLeave(podId, data as DispatchPayloadMap["MEMBER_LEAVE"]);
       break;
     case "MEMBER_UPDATE":
-      handleMemberUpdate(data as DispatchPayloadMap["MEMBER_UPDATE"]);
+      handleMemberUpdate(podId, data as DispatchPayloadMap["MEMBER_UPDATE"]);
       break;
 
     default:
@@ -86,18 +107,18 @@ export function handleDispatch(event: DispatchEventName, data: unknown): void {
 
 /**
  * Populate stores from the READY payload.
- * Called from `GatewayConnection` after a successful IDENTIFY.
+ * Called from the pod store after a successful IDENTIFY.
  */
-export function handleReady(payload: ReadyPayload): void {
+export function handleReady(payload: ReadyPayload, podId: string): void {
   useCommunityStore.setState((state) => {
-    const communities = { ...state.communities };
-    const channels = { ...state.channels };
-    const roles = { ...state.roles };
+    const podCommunities = { ...(state.communities[podId] ?? {}) };
+    const podChannels = { ...(state.channels[podId] ?? {}) };
+    const podRoles = { ...(state.roles[podId] ?? {}) };
 
     for (const community of payload.communities) {
       // Merge community — READY data wins (has latest state)
-      communities[community.id] = {
-        ...communities[community.id],
+      podCommunities[community.id] = {
+        ...podCommunities[community.id],
         id: community.id,
         name: community.name,
         description: community.description,
@@ -107,15 +128,20 @@ export function handleReady(payload: ReadyPayload): void {
       } as Community;
 
       // READY channels have message_count — always prefer them
-      channels[community.id] = ([...community.channels] as Channel[]).sort(
+      podChannels[community.id] = ([...community.channels] as Channel[]).sort(
         (a, b) => a.position - b.position,
       );
-      roles[community.id] = ([...community.roles] as Role[]).sort(
+      podRoles[community.id] = ([...community.roles] as Role[]).sort(
         (a, b) => a.position - b.position,
       );
     }
 
-    return { communities, channels, roles, loading: false };
+    return {
+      communities: { ...state.communities, [podId]: podCommunities },
+      channels: { ...state.channels, [podId]: podChannels },
+      roles: { ...state.roles, [podId]: podRoles },
+      loading: false,
+    };
   });
 }
 
@@ -123,70 +149,82 @@ export function handleReady(payload: ReadyPayload): void {
 // Message handlers
 // ---------------------------------------------------------------------------
 
-// Messages store doesn't exist yet (Task C-6). These handlers are stubs that
-// will be wired to the messages store once it's created. For now they log.
-
-function handleMessageCreate(payload: MessagePayload) {
-  useMessageStore.getState().gatewayMessageCreate(payload);
+function handleMessageCreate(podId: string, payload: MessagePayload) {
+  useMessageStore.getState().gatewayMessageCreate(podId, payload);
 }
 
-function handleMessageUpdate(payload: MessagePayload) {
-  useMessageStore.getState().gatewayMessageUpdate(payload);
+function handleMessageUpdate(podId: string, payload: MessagePayload) {
+  useMessageStore.getState().gatewayMessageUpdate(podId, payload);
 }
 
-function handleMessageDelete(payload: MessageDeletePayload) {
+function handleMessageDelete(podId: string, payload: MessageDeletePayload) {
   useMessageStore
     .getState()
-    .gatewayMessageDelete(payload.channel_id, payload.id);
+    .gatewayMessageDelete(podId, payload.channel_id, payload.id);
 }
 
 // ---------------------------------------------------------------------------
 // Reaction handlers
 // ---------------------------------------------------------------------------
 
-function handleReactionAdd(payload: ReactionPayload) {
-  useMessageStore.getState().gatewayReactionAdd(payload);
+function handleReactionAdd(podId: string, payload: ReactionPayload) {
+  useMessageStore.getState().gatewayReactionAdd(podId, payload);
 }
 
-function handleReactionRemove(payload: ReactionPayload) {
-  useMessageStore.getState().gatewayReactionRemove(payload);
+function handleReactionRemove(podId: string, payload: ReactionPayload) {
+  useMessageStore.getState().gatewayReactionRemove(podId, payload);
 }
 
 // ---------------------------------------------------------------------------
 // Channel handlers
 // ---------------------------------------------------------------------------
 
-function handleChannelCreate(payload: ChannelPayload) {
+function handleChannelCreate(podId: string, payload: ChannelPayload) {
   useCommunityStore.setState((state) => {
-    const communityChannels = state.channels[payload.community_id] ?? [];
+    const podChannels: Record<string, Channel[]> =
+      state.channels[podId] ?? {};
+    const communityChannels = podChannels[payload.community_id] ?? [];
     const updated = [
       ...communityChannels,
       { ...payload, message_count: 0 },
     ].sort((a, b) => a.position - b.position);
     return {
-      channels: { ...state.channels, [payload.community_id]: updated },
+      channels: {
+        ...state.channels,
+        [podId]: { ...podChannels, [payload.community_id]: updated },
+      },
     };
   });
 }
 
-function handleChannelUpdate(payload: ChannelPayload) {
+function handleChannelUpdate(podId: string, payload: ChannelPayload) {
   useCommunityStore.setState((state) => {
-    const communityChannels = state.channels[payload.community_id] ?? [];
+    const podChannels: Record<string, Channel[]> =
+      state.channels[podId] ?? {};
+    const communityChannels = podChannels[payload.community_id] ?? [];
     const updated = communityChannels
       .map((ch) => (ch.id === payload.id ? { ...ch, ...payload } : ch))
       .sort((a, b) => a.position - b.position);
     return {
-      channels: { ...state.channels, [payload.community_id]: updated },
+      channels: {
+        ...state.channels,
+        [podId]: { ...podChannels, [payload.community_id]: updated },
+      },
     };
   });
 }
 
-function handleChannelDelete(payload: ChannelDeletePayload) {
+function handleChannelDelete(podId: string, payload: ChannelDeletePayload) {
   useCommunityStore.setState((state) => {
-    const communityChannels = state.channels[payload.community_id] ?? [];
+    const podChannels: Record<string, Channel[]> =
+      state.channels[podId] ?? {};
+    const communityChannels = podChannels[payload.community_id] ?? [];
     const updated = communityChannels.filter((ch) => ch.id !== payload.id);
     return {
-      channels: { ...state.channels, [payload.community_id]: updated },
+      channels: {
+        ...state.channels,
+        [podId]: { ...podChannels, [payload.community_id]: updated },
+      },
     };
   });
 }
@@ -195,14 +233,21 @@ function handleChannelDelete(payload: ChannelDeletePayload) {
 // Community handlers
 // ---------------------------------------------------------------------------
 
-function handleCommunityUpdate(payload: CommunityUpdatePayload) {
+function handleCommunityUpdate(
+  podId: string,
+  payload: CommunityUpdatePayload,
+) {
   useCommunityStore.setState((state) => {
-    const existing = state.communities[payload.id];
+    const podCommunities = state.communities[podId] ?? {};
+    const existing = podCommunities[payload.id];
     if (!existing) return state;
     return {
       communities: {
         ...state.communities,
-        [payload.id]: { ...existing, ...payload },
+        [podId]: {
+          ...podCommunities,
+          [payload.id]: { ...existing, ...payload },
+        },
       },
     };
   });
@@ -212,9 +257,11 @@ function handleCommunityUpdate(payload: CommunityUpdatePayload) {
 // Member handlers
 // ---------------------------------------------------------------------------
 
-function handleMemberJoin(payload: MemberPayload) {
+function handleMemberJoin(podId: string, payload: MemberPayload) {
   useCommunityStore.setState((state) => {
-    const existing = state.members[payload.community_id] ?? [];
+    const podMembers: Record<string, CommunityMember[]> =
+      state.members[podId] ?? {};
+    const existing = podMembers[payload.community_id] ?? [];
     // Avoid duplicates
     if (existing.some((m) => m.user_id === payload.user_id)) return state;
     const newMember = {
@@ -223,70 +270,88 @@ function handleMemberJoin(payload: MemberPayload) {
       nickname: payload.nickname,
       roles: payload.roles,
       joined_at: payload.joined_at,
-    };
+    } as CommunityMember;
     return {
       members: {
         ...state.members,
-        [payload.community_id]: [...existing, newMember],
+        [podId]: {
+          ...podMembers,
+          [payload.community_id]: [...existing, newMember],
+        },
       },
     };
   });
 
   // Bump member_count
   useCommunityStore.setState((state) => {
-    const community = state.communities[payload.community_id];
+    const podCommunities = state.communities[podId] ?? {};
+    const community = podCommunities[payload.community_id];
     if (!community) return state;
     return {
       communities: {
         ...state.communities,
-        [payload.community_id]: {
-          ...community,
-          member_count: community.member_count + 1,
+        [podId]: {
+          ...podCommunities,
+          [payload.community_id]: {
+            ...community,
+            member_count: community.member_count + 1,
+          },
         },
       },
     };
   });
 }
 
-function handleMemberLeave(payload: MemberLeavePayload) {
+function handleMemberLeave(podId: string, payload: MemberLeavePayload) {
   useCommunityStore.setState((state) => {
-    const existing = state.members[payload.community_id] ?? [];
+    const podMembers: Record<string, CommunityMember[]> =
+      state.members[podId] ?? {};
+    const existing = podMembers[payload.community_id] ?? [];
     return {
       members: {
         ...state.members,
-        [payload.community_id]: existing.filter(
-          (m) => m.user_id !== payload.user_id,
-        ),
+        [podId]: {
+          ...podMembers,
+          [payload.community_id]: existing.filter(
+            (m) => m.user_id !== payload.user_id,
+          ),
+        },
       },
     };
   });
 
   // Decrement member_count
   useCommunityStore.setState((state) => {
-    const community = state.communities[payload.community_id];
+    const podCommunities = state.communities[podId] ?? {};
+    const community = podCommunities[payload.community_id];
     if (!community) return state;
     return {
       communities: {
         ...state.communities,
-        [payload.community_id]: {
-          ...community,
-          member_count: Math.max(0, community.member_count - 1),
+        [podId]: {
+          ...podCommunities,
+          [payload.community_id]: {
+            ...community,
+            member_count: Math.max(0, community.member_count - 1),
+          },
         },
       },
     };
   });
 }
 
-function handleMemberUpdate(payload: MemberPayload) {
+function handleMemberUpdate(podId: string, payload: MemberPayload) {
   useCommunityStore.setState((state) => {
-    const existing = state.members[payload.community_id] ?? [];
+    const podMembers: Record<string, CommunityMember[]> =
+      state.members[podId] ?? {};
+    const existing = podMembers[payload.community_id] ?? [];
     const updated = existing.map((m) =>
       m.user_id === payload.user_id ? { ...m, ...payload } : m,
     );
     return {
       members: {
         ...state.members,
-        [payload.community_id]: updated,
+        [podId]: { ...podMembers, [payload.community_id]: updated },
       },
     };
   });

@@ -15,8 +15,9 @@ import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
-import { Route as AuthenticatedCommunityCommunityIdRouteImport } from './routes/_authenticated/community/$communityId'
-import { Route as AuthenticatedCommunityCommunityIdChannelChannelIdRouteImport } from './routes/_authenticated/community/$communityId/channel/$channelId'
+import { Route as AuthenticatedPodPodIdRouteImport } from './routes/_authenticated/pod/$podId'
+import { Route as AuthenticatedPodPodIdCommunityCommunityIdRouteImport } from './routes/_authenticated/pod/$podId/community/$communityId'
+import { Route as AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRouteImport } from './routes/_authenticated/pod/$podId/community/$communityId/channel/$channelId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -47,17 +48,22 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedCommunityCommunityIdRoute =
-  AuthenticatedCommunityCommunityIdRouteImport.update({
+const AuthenticatedPodPodIdRoute = AuthenticatedPodPodIdRouteImport.update({
+  id: '/pod/$podId',
+  path: '/pod/$podId',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedPodPodIdCommunityCommunityIdRoute =
+  AuthenticatedPodPodIdCommunityCommunityIdRouteImport.update({
     id: '/community/$communityId',
     path: '/community/$communityId',
-    getParentRoute: () => AuthenticatedRoute,
+    getParentRoute: () => AuthenticatedPodPodIdRoute,
   } as any)
-const AuthenticatedCommunityCommunityIdChannelChannelIdRoute =
-  AuthenticatedCommunityCommunityIdChannelChannelIdRouteImport.update({
+const AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute =
+  AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRouteImport.update({
     id: '/channel/$channelId',
     path: '/channel/$channelId',
-    getParentRoute: () => AuthenticatedCommunityCommunityIdRoute,
+    getParentRoute: () => AuthenticatedPodPodIdCommunityCommunityIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -66,8 +72,9 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
-  '/community/$communityId/channel/$channelId': typeof AuthenticatedCommunityCommunityIdChannelChannelIdRoute
+  '/pod/$podId': typeof AuthenticatedPodPodIdRouteWithChildren
+  '/pod/$podId/community/$communityId': typeof AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren
+  '/pod/$podId/community/$communityId/channel/$channelId': typeof AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute
 }
 export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
@@ -75,8 +82,9 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/': typeof AuthenticatedIndexRoute
-  '/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
-  '/community/$communityId/channel/$channelId': typeof AuthenticatedCommunityCommunityIdChannelChannelIdRoute
+  '/pod/$podId': typeof AuthenticatedPodPodIdRouteWithChildren
+  '/pod/$podId/community/$communityId': typeof AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren
+  '/pod/$podId/community/$communityId/channel/$channelId': typeof AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,8 +94,9 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/_authenticated/community/$communityId': typeof AuthenticatedCommunityCommunityIdRouteWithChildren
-  '/_authenticated/community/$communityId/channel/$channelId': typeof AuthenticatedCommunityCommunityIdChannelChannelIdRoute
+  '/_authenticated/pod/$podId': typeof AuthenticatedPodPodIdRouteWithChildren
+  '/_authenticated/pod/$podId/community/$communityId': typeof AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren
+  '/_authenticated/pod/$podId/community/$communityId/channel/$channelId': typeof AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -97,8 +106,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/settings'
-    | '/community/$communityId'
-    | '/community/$communityId/channel/$channelId'
+    | '/pod/$podId'
+    | '/pod/$podId/community/$communityId'
+    | '/pod/$podId/community/$communityId/channel/$channelId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/callback'
@@ -106,8 +116,9 @@ export interface FileRouteTypes {
     | '/signup'
     | '/settings'
     | '/'
-    | '/community/$communityId'
-    | '/community/$communityId/channel/$channelId'
+    | '/pod/$podId'
+    | '/pod/$podId/community/$communityId'
+    | '/pod/$podId/community/$communityId/channel/$channelId'
   id:
     | '__root__'
     | '/_authenticated'
@@ -116,8 +127,9 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_authenticated/settings'
     | '/_authenticated/'
-    | '/_authenticated/community/$communityId'
-    | '/_authenticated/community/$communityId/channel/$channelId'
+    | '/_authenticated/pod/$podId'
+    | '/_authenticated/pod/$podId/community/$communityId'
+    | '/_authenticated/pod/$podId/community/$communityId/channel/$channelId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,49 +183,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/community/$communityId': {
-      id: '/_authenticated/community/$communityId'
-      path: '/community/$communityId'
-      fullPath: '/community/$communityId'
-      preLoaderRoute: typeof AuthenticatedCommunityCommunityIdRouteImport
+    '/_authenticated/pod/$podId': {
+      id: '/_authenticated/pod/$podId'
+      path: '/pod/$podId'
+      fullPath: '/pod/$podId'
+      preLoaderRoute: typeof AuthenticatedPodPodIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/community/$communityId/channel/$channelId': {
-      id: '/_authenticated/community/$communityId/channel/$channelId'
+    '/_authenticated/pod/$podId/community/$communityId': {
+      id: '/_authenticated/pod/$podId/community/$communityId'
+      path: '/community/$communityId'
+      fullPath: '/pod/$podId/community/$communityId'
+      preLoaderRoute: typeof AuthenticatedPodPodIdCommunityCommunityIdRouteImport
+      parentRoute: typeof AuthenticatedPodPodIdRoute
+    }
+    '/_authenticated/pod/$podId/community/$communityId/channel/$channelId': {
+      id: '/_authenticated/pod/$podId/community/$communityId/channel/$channelId'
       path: '/channel/$channelId'
-      fullPath: '/community/$communityId/channel/$channelId'
-      preLoaderRoute: typeof AuthenticatedCommunityCommunityIdChannelChannelIdRouteImport
-      parentRoute: typeof AuthenticatedCommunityCommunityIdRoute
+      fullPath: '/pod/$podId/community/$communityId/channel/$channelId'
+      preLoaderRoute: typeof AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRouteImport
+      parentRoute: typeof AuthenticatedPodPodIdCommunityCommunityIdRoute
     }
   }
 }
 
-interface AuthenticatedCommunityCommunityIdRouteChildren {
-  AuthenticatedCommunityCommunityIdChannelChannelIdRoute: typeof AuthenticatedCommunityCommunityIdChannelChannelIdRoute
+interface AuthenticatedPodPodIdCommunityCommunityIdRouteChildren {
+  AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute: typeof AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute
 }
 
-const AuthenticatedCommunityCommunityIdRouteChildren: AuthenticatedCommunityCommunityIdRouteChildren =
+const AuthenticatedPodPodIdCommunityCommunityIdRouteChildren: AuthenticatedPodPodIdCommunityCommunityIdRouteChildren =
   {
-    AuthenticatedCommunityCommunityIdChannelChannelIdRoute:
-      AuthenticatedCommunityCommunityIdChannelChannelIdRoute,
+    AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute:
+      AuthenticatedPodPodIdCommunityCommunityIdChannelChannelIdRoute,
   }
 
-const AuthenticatedCommunityCommunityIdRouteWithChildren =
-  AuthenticatedCommunityCommunityIdRoute._addFileChildren(
-    AuthenticatedCommunityCommunityIdRouteChildren,
+const AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren =
+  AuthenticatedPodPodIdCommunityCommunityIdRoute._addFileChildren(
+    AuthenticatedPodPodIdCommunityCommunityIdRouteChildren,
+  )
+
+interface AuthenticatedPodPodIdRouteChildren {
+  AuthenticatedPodPodIdCommunityCommunityIdRoute: typeof AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren
+}
+
+const AuthenticatedPodPodIdRouteChildren: AuthenticatedPodPodIdRouteChildren = {
+  AuthenticatedPodPodIdCommunityCommunityIdRoute:
+    AuthenticatedPodPodIdCommunityCommunityIdRouteWithChildren,
+}
+
+const AuthenticatedPodPodIdRouteWithChildren =
+  AuthenticatedPodPodIdRoute._addFileChildren(
+    AuthenticatedPodPodIdRouteChildren,
   )
 
 interface AuthenticatedRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedCommunityCommunityIdRoute: typeof AuthenticatedCommunityCommunityIdRouteWithChildren
+  AuthenticatedPodPodIdRoute: typeof AuthenticatedPodPodIdRouteWithChildren
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedCommunityCommunityIdRoute:
-    AuthenticatedCommunityCommunityIdRouteWithChildren,
+  AuthenticatedPodPodIdRoute: AuthenticatedPodPodIdRouteWithChildren,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

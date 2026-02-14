@@ -39,6 +39,8 @@ const BACKOFF_FACTOR = 2;
 // ---------------------------------------------------------------------------
 
 export class GatewayConnection {
+  readonly podId: string;
+
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatInterval = 41_250;
@@ -54,6 +56,10 @@ export class GatewayConnection {
   // Status tracking
   private _status: GatewayStatus = "disconnected";
   private statusListeners = new Set<StatusListener>();
+
+  constructor(podId: string) {
+    this.podId = podId;
+  }
 
   /** Current connection status. */
   get status(): GatewayStatus {
@@ -143,7 +149,7 @@ export class GatewayConnection {
               ready = true;
               resolve(payload);
             } else {
-              handleDispatch(eventName, raw.d);
+              handleDispatch(eventName, raw.d, this.podId);
             }
             break;
           }
@@ -273,6 +279,3 @@ export class GatewayConnection {
     }
   }
 }
-
-/** Singleton gateway instance. */
-export const gateway = new GatewayConnection();

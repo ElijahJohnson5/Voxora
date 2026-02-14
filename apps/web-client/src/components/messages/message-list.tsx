@@ -1,16 +1,12 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { ArrowDown } from "lucide-react";
-import { useMessageStore, type Message } from "@/stores/messages";
+import { useMessageStore, channelKey, type Message } from "@/stores/messages";
 import { MessageItem } from "./message-item";
+import { useChannel } from "./channel-context";
 import { usePodStore } from "@/stores/pod";
-import { Button } from "@/components/ui/button";
 
 const EMPTY_MESSAGES: Message[] = [];
-
-interface MessageListProps {
-  channelId: string;
-}
 
 interface ListItem {
   key: string;
@@ -31,21 +27,27 @@ function isCompactMessage(
   return currTime - prevTime < 5 * 60 * 1000;
 }
 
-export function MessageList({ channelId }: MessageListProps) {
-  const channelData = useMessageStore((s) => s.byChannel[channelId]);
+export function MessageList() {
+  const { podId, channelId } = useChannel();
+  const key = channelKey(podId, channelId);
+  const channelData = useMessageStore((s) => s.byChannel[key]);
   const messages = channelData?.messages ?? EMPTY_MESSAGES;
   const hasOlder = channelData?.hasOlder ?? true;
   const hasNewer = channelData?.hasNewer ?? false;
   const loading = channelData?.loading ?? false;
   const pending = useMessageStore((s) => s.pending);
   const pendingMessages = useMemo(
-    () => Object.values(pending).filter((p) => p.channel_id === channelId),
-    [pending, channelId],
+    () =>
+      Object.values(pending).filter(
+        (p) => p.podId === podId && p.channel_id === channelId,
+      ),
+    [pending, podId, channelId],
   );
   const fetchMessages = useMessageStore((s) => s.fetchMessages);
-  const currentUserId = usePodStore((s) => s.user?.id) ?? "";
+  const currentUserId = usePodStore((s) => s.pods[podId]?.user?.id) ?? "";
 
   const ref = useRef<VirtualizerHandle>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [shifting, setShifting] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export function MessageList({ channelId }: MessageListProps) {
     readyRef.current = false;
     setShifting(false);
     setIsAtBottom(true);
-  }, [channelId]);
+  }, [key]);
 
   // Initial scroll to bottom
   useEffect(() => {
@@ -170,9 +172,9 @@ export function MessageList({ channelId }: MessageListProps) {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="styled-scrollbar flex flex-1 flex-col overflow-y-auto">
+      <div ref={scrollRef} className="styled-scrollbar flex-1 overflow-y-auto">
         {allItems.length === 0 ? (
-          <div className="flex flex-1 items-end p-4">
+          <div className="flex min-h-full items-end p-4">
             <div>
               <h3 className="text-lg font-semibold">
                 Welcome to this channel!
@@ -183,8 +185,10 @@ export function MessageList({ channelId }: MessageListProps) {
             </div>
           </div>
         ) : (
+          <div className="flex min-h-full flex-col justify-end">
           <Virtualizer
             ref={ref}
+            scrollRef={scrollRef}
             shift={shifting}
             bufferSize={550}
             onScroll={() => {
@@ -209,7 +213,9 @@ export function MessageList({ channelId }: MessageListProps) {
                 if (oldestMessage) {
                   setShifting(true);
                   fetchingOlderRef.current = true;
-                  fetchMessages(channelId, { before: oldestMessage.id });
+                  fetchMessages(podId, channelId, {
+                    before: oldestMessage.id,
+                  });
                 }
               }
 
@@ -223,7 +229,9 @@ export function MessageList({ channelId }: MessageListProps) {
                 const newestMessage = messages[messages.length - 1];
                 if (newestMessage) {
                   fetchingNewerRef.current = true;
-                  fetchMessages(channelId, { after: newestMessage.id });
+                  fetchMessages(podId, channelId, {
+                    after: newestMessage.id,
+                  });
                 }
               }
             }}
@@ -241,6 +249,7 @@ export function MessageList({ channelId }: MessageListProps) {
               />
             ))}
           </Virtualizer>
+          </div>
         )}
       </div>
 

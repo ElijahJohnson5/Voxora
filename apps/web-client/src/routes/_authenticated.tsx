@@ -15,7 +15,7 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AuthenticatedLayout() {
   const channelMatch = useMatch({
-    from: "/_authenticated/community/$communityId/channel/$channelId",
+    from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
     shouldThrow: false,
   });
   const settingsMatch = useMatch({

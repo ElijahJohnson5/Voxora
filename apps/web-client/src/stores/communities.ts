@@ -10,29 +10,39 @@ export type Role = components["schemas"]["Role"];
 export type CommunityMember = components["schemas"]["CommunityMember"];
 
 interface CommunitiesState {
-  communities: Record<string, Community>;
-  channels: Record<string, Channel[]>;
-  roles: Record<string, Role[]>;
-  members: Record<string, CommunityMember[]>;
+  // podId → communityId → Community
+  communities: Record<string, Record<string, Community>>;
+  // podId → communityId → Channel[]
+  channels: Record<string, Record<string, Channel[]>>;
+  // podId → communityId → Role[]
+  roles: Record<string, Record<string, Role[]>>;
+  // podId → communityId → CommunityMember[]
+  members: Record<string, Record<string, CommunityMember[]>>;
   loading: boolean;
 
+  activePodId: string | null;
   activeCommunityId: string | null;
   activeChannelId: string | null;
 
-  setActiveCommunity: (id: string) => void;
+  setActive: (podId: string, communityId: string) => void;
   setActiveChannel: (id: string) => void;
-  fetchCommunities: () => Promise<void>;
-  fetchCommunity: (communityId: string) => Promise<void>;
-  fetchMembers: (communityId: string) => Promise<void>;
-  createCommunity: (name: string, description?: string) => Promise<string>;
-  joinViaInvite: (code: string) => Promise<string>;
+  fetchCommunities: (podId: string) => Promise<void>;
+  fetchCommunity: (podId: string, communityId: string) => Promise<void>;
+  fetchMembers: (podId: string, communityId: string) => Promise<void>;
+  createCommunity: (
+    podId: string,
+    name: string,
+    description?: string,
+  ) => Promise<string>;
+  joinViaInvite: (podId: string, code: string) => Promise<string>;
+  resetPod: (podId: string) => void;
   reset: () => void;
 }
 
-function getPodClient() {
-  const { podUrl, pat } = usePodStore.getState();
-  if (!podUrl || !pat) throw new Error("Not connected to pod");
-  return createPodClient(podUrl, pat);
+function getPodClient(podId: string) {
+  const conn = usePodStore.getState().pods[podId];
+  if (!conn?.podUrl || !conn?.pat) throw new Error("Not connected to pod");
+  return createPodClient(conn.podUrl, conn.pat);
 }
 
 export const useCommunityStore = create<CommunitiesState>()((set) => ({
@@ -42,15 +52,18 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
   members: {},
   loading: false,
 
+  activePodId: null,
   activeCommunityId: null,
   activeChannelId: null,
 
-  setActiveCommunity: (id) => set({ activeCommunityId: id }),
+  setActive: (podId, communityId) =>
+    set({ activePodId: podId, activeCommunityId: communityId }),
+
   setActiveChannel: (id) => set({ activeChannelId: id }),
 
-  fetchCommunity: async (communityId: string) => {
+  fetchCommunity: async (podId, communityId) => {
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       const { data, error } = await client.GET("/api/v1/communities/{id}", {
         params: { path: { id: communityId } },
       });
@@ -58,14 +71,30 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
 
       const resp = data as CommunityResponse;
       set((state) => ({
-        communities: { ...state.communities, [resp.id]: resp },
+        communities: {
+          ...state.communities,
+          [podId]: {
+            ...(state.communities[podId] ?? {}),
+            [resp.id]: resp,
+          },
+        },
         channels: {
           ...state.channels,
-          [resp.id]: [...resp.channels].sort((a, b) => a.position - b.position),
+          [podId]: {
+            ...(state.channels[podId] ?? {}),
+            [resp.id]: [...resp.channels].sort(
+              (a, b) => a.position - b.position,
+            ),
+          },
         },
         roles: {
           ...state.roles,
-          [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+          [podId]: {
+            ...(state.roles[podId] ?? {}),
+            [resp.id]: [...resp.roles].sort(
+              (a, b) => a.position - b.position,
+            ),
+          },
         },
       }));
     } catch {
@@ -73,10 +102,10 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
     }
   },
 
-  fetchCommunities: async () => {
+  fetchCommunities: async (podId) => {
     set({ loading: true });
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
 
       // List all communities (returns Community[] without channels/roles)
       const { data: communityList, error: listError } = await client.GET(
@@ -85,25 +114,27 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
       if (listError || !communityList)
         throw new Error("Failed to fetch communities");
 
-      const communities: Record<string, Community> = {};
-      const channels: Record<string, Channel[]> = {};
-      const roles: Record<string, Role[]> = {};
+      const podCommunities: Record<string, Community> = {};
 
       for (const community of communityList) {
-        communities[community.id] = {
-          ...community,
-        };
+        podCommunities[community.id] = { ...community };
       }
 
-      set({ communities, channels, roles, loading: false });
+      set((state) => ({
+        communities: {
+          ...state.communities,
+          [podId]: podCommunities,
+        },
+        loading: false,
+      }));
     } catch {
       set({ loading: false });
     }
   },
 
-  fetchMembers: async (communityId) => {
+  fetchMembers: async (podId, communityId) => {
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       const { data, error } = await client.GET(
         "/api/v1/communities/{community_id}/members",
         { params: { path: { community_id: communityId } } },
@@ -111,15 +142,21 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
       if (error || !data) throw new Error("Failed to fetch members");
 
       set((state) => ({
-        members: { ...state.members, [communityId]: data.data },
+        members: {
+          ...state.members,
+          [podId]: {
+            ...(state.members[podId] ?? {}),
+            [communityId]: data.data,
+          },
+        },
       }));
     } catch {
       // silently fail — member list just stays empty
     }
   },
 
-  createCommunity: async (name, description) => {
-    const client = getPodClient();
+  createCommunity: async (podId, name, description) => {
+    const client = getPodClient(podId);
     const { data, error } = await client.POST("/api/v1/communities", {
       body: { name, description: description || null },
     });
@@ -127,22 +164,36 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
 
     const resp = data as CommunityResponse;
     set((state) => ({
-      communities: { ...state.communities, [resp.id]: resp },
+      communities: {
+        ...state.communities,
+        [podId]: {
+          ...(state.communities[podId] ?? {}),
+          [resp.id]: resp,
+        },
+      },
       channels: {
         ...state.channels,
-        [resp.id]: [...resp.channels].sort((a, b) => a.position - b.position),
+        [podId]: {
+          ...(state.channels[podId] ?? {}),
+          [resp.id]: [...resp.channels].sort(
+            (a, b) => a.position - b.position,
+          ),
+        },
       },
       roles: {
         ...state.roles,
-        [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+        [podId]: {
+          ...(state.roles[podId] ?? {}),
+          [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+        },
       },
     }));
 
     return resp.id;
   },
 
-  joinViaInvite: async (code) => {
-    const client = getPodClient();
+  joinViaInvite: async (podId, code) => {
+    const client = getPodClient(podId);
     const { data, error } = await client.POST("/api/v1/invites/{code}/accept", {
       params: { path: { code } },
     });
@@ -160,19 +211,46 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
 
     const resp = communityData as CommunityResponse;
     set((state) => ({
-      communities: { ...state.communities, [resp.id]: resp },
+      communities: {
+        ...state.communities,
+        [podId]: {
+          ...(state.communities[podId] ?? {}),
+          [resp.id]: resp,
+        },
+      },
       channels: {
         ...state.channels,
-        [resp.id]: [...resp.channels].sort((a, b) => a.position - b.position),
+        [podId]: {
+          ...(state.channels[podId] ?? {}),
+          [resp.id]: [...resp.channels].sort(
+            (a, b) => a.position - b.position,
+          ),
+        },
       },
       roles: {
         ...state.roles,
-        [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+        [podId]: {
+          ...(state.roles[podId] ?? {}),
+          [resp.id]: [...resp.roles].sort((a, b) => a.position - b.position),
+        },
       },
     }));
 
     return communityId;
   },
+
+  resetPod: (podId) =>
+    set((state) => {
+      const communities = { ...state.communities };
+      const channels = { ...state.channels };
+      const roles = { ...state.roles };
+      const members = { ...state.members };
+      delete communities[podId];
+      delete channels[podId];
+      delete roles[podId];
+      delete members[podId];
+      return { communities, channels, roles, members };
+    }),
 
   reset: () =>
     set({
@@ -181,6 +259,7 @@ export const useCommunityStore = create<CommunitiesState>()((set) => ({
       roles: {},
       members: {},
       loading: false,
+      activePodId: null,
       activeCommunityId: null,
       activeChannelId: null,
     }),

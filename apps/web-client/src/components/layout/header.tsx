@@ -33,17 +33,20 @@ const statusConfig = {
 export function Header() {
   const { theme, setTheme } = useTheme();
   const channels = useCommunityStore((s) => s.channels);
-  const gatewayStatus = useGatewayStatus();
 
   // Read IDs directly from the URL — always in sync, no flash
   const channelMatch = useMatch({
-    from: "/_authenticated/community/$communityId/channel/$channelId",
+    from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
     shouldThrow: false,
   });
+  const podId = channelMatch?.params.podId;
   const communityId = channelMatch?.params.communityId;
   const channelId = channelMatch?.params.channelId;
 
-  const channelList = communityId ? (channels[communityId] ?? []) : [];
+  const gatewayStatus = useGatewayStatus(podId);
+
+  const channelList =
+    podId && communityId ? (channels[podId]?.[communityId] ?? []) : [];
   const activeChannel = channelList.find((c) => c.id === channelId);
 
   const current =
@@ -53,7 +56,7 @@ export function Header() {
   return (
     <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
       <div className="flex items-center gap-2">
-        {activeChannel ? (
+        {activeChannel && (
           <>
             <span className="text-muted-foreground">#</span>
             <h1 className="text-sm font-semibold">{activeChannel.name}</h1>
@@ -66,14 +69,10 @@ export function Header() {
               </>
             )}
           </>
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            Select a channel
-          </span>
         )}
       </div>
       <div className="flex items-center gap-2">
-        {gatewayStatus !== "connected" && (
+        {podId && gatewayStatus !== "connected" && (
           <Badge variant="outline" className="gap-1.5 text-xs font-normal">
             <span
               className={cn(

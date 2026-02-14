@@ -16,6 +16,7 @@ import { Editor, EditorContainer } from "@/components/ui/editor";
 import { MessageKit } from "@/components/editor/message-kit";
 import { Pencil, Trash2, SmilePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useChannel } from "./channel-context";
 import { MessageReactions } from "./reactions";
 import { RichTextContent } from "./rich-text-content";
 import type React from "react";
@@ -67,15 +68,18 @@ export const MessageItem = memo(function MessageItem({
   onEditStart,
   onEditEnd,
 }: MessageItemProps) {
+  const { podId } = useChannel();
   const editMessage = useMessageStore((s) => s.editMessage);
   const deleteMessage = useMessageStore((s) => s.deleteMessage);
   const reactions: Reaction[] =
     useMessageStore((s) => s.reactions[message.id]) ?? [];
 
+  const activePodId = useCommunityStore((s) => s.activePodId);
   const activeCommunityId = useCommunityStore((s) => s.activeCommunityId);
   const member = useCommunityStore((s) => {
-    if (!activeCommunityId) return undefined;
-    const list = s.members[activeCommunityId];
+    const pid = activePodId ?? podId;
+    if (!pid || !activeCommunityId) return undefined;
+    const list = s.members[pid]?.[activeCommunityId];
     return list?.find((m) => m.user_id === message.author_id);
   });
 
@@ -89,10 +93,10 @@ export const MessageItem = memo(function MessageItem({
   const handleSaveEdit = useCallback(
     async (content: string) => {
       if (!content.trim()) return;
-      await editMessage(message.channel_id, message.id, content);
+      await editMessage(podId, message.channel_id, message.id, content);
       onEditEnd?.();
     },
-    [editMessage, message.channel_id, message.id, onEditEnd],
+    [editMessage, podId, message.channel_id, message.id, onEditEnd],
   );
 
   const handleCancelEdit = useCallback(() => {
@@ -100,8 +104,8 @@ export const MessageItem = memo(function MessageItem({
   }, [onEditEnd]);
 
   const handleDelete = useCallback(() => {
-    deleteMessage(message.channel_id, message.id);
-  }, [deleteMessage, message.channel_id, message.id]);
+    deleteMessage(podId, message.channel_id, message.id);
+  }, [deleteMessage, podId, message.channel_id, message.id]);
 
   const handleEditStart = useCallback(() => {
     onEditStart?.(message.id);
@@ -144,7 +148,6 @@ export const MessageItem = memo(function MessageItem({
           {reactions.length > 0 && (
             <MessageReactions
               reactions={reactions}
-              channelId={message.channel_id}
               messageId={message.id}
             />
           )}
@@ -208,7 +211,6 @@ export const MessageItem = memo(function MessageItem({
         {reactions.length > 0 && (
           <MessageReactions
             reactions={reactions}
-            channelId={message.channel_id}
             messageId={message.id}
           />
         )}

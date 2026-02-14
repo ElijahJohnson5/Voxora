@@ -1,13 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { Moon, Sun, Monitor } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/auth";
+import { useTheme } from "@/lib/theme";
 import { hubApi } from "@/lib/api/hub-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
@@ -144,10 +147,47 @@ function SettingsPage() {
 
         <Separator />
 
+        {/* Appearance */}
+        <ThemeSwitcher />
+
+        <Separator />
+
         {/* Logout */}
         <Button variant="destructive" onClick={handleLogout}>
           Log out
         </Button>
+      </div>
+    </div>
+  );
+}
+
+const themeOptions = [
+  { value: "light" as const, icon: Sun, label: "Light" },
+  { value: "dark" as const, icon: Moon, label: "Dark" },
+  { value: "system" as const, icon: Monitor, label: "System" },
+];
+
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div className="space-y-2">
+      <Label>Appearance</Label>
+      <div className="flex gap-2">
+        {themeOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setTheme(option.value)}
+            className={cn(
+              "flex flex-1 flex-col items-center gap-1.5 rounded-lg border border-border p-3 text-sm transition-colors hover:bg-accent",
+              theme === option.value && "border-primary bg-primary/5",
+            )}
+          >
+            <option.icon className="size-5" />
+            {option.label}
+          </button>
+        ))}
       </div>
     </div>
   );

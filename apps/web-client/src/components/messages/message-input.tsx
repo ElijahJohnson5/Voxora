@@ -3,6 +3,7 @@ import type { Value } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { useMessageStore } from "@/stores/messages";
+import { useChannel } from "./channel-context";
 import { MessageKit } from "../editor/message-kit";
 
 const EMPTY_VALUE: Value = [{ type: "p", children: [{ text: "" }] }];
@@ -62,14 +63,13 @@ function serializeContent(value: Value): string {
 }
 
 interface MessageInputProps {
-  channelId: string;
   placeholder?: string;
 }
 
 export function MessageInput({
-  channelId,
   placeholder = "Type a message…",
 }: MessageInputProps) {
+  const { podId, channelId } = useChannel();
   const sendMessage = useMessageStore((s) => s.sendMessage);
 
   const editor = usePlateEditor({
@@ -83,10 +83,10 @@ export function MessageInput({
     if (isValueEmpty(value)) return;
 
     const content = serializeContent(value);
-    sendMessage(channelId, content);
+    sendMessage(podId, channelId, content);
 
     editor.tf.reset();
-  }, [editor, channelId, sendMessage]);
+  }, [editor, podId, channelId, sendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

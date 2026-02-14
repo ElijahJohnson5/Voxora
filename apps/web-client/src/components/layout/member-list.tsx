@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useMatch } from "@tanstack/react-router";
 import { X, Users } from "lucide-react";
 import { useCommunityStore, type CommunityMember, type Role } from "@/stores/communities";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -57,22 +58,34 @@ function groupMembersByRole(
 
 export function MemberList() {
   const [collapsed, setCollapsed] = useState(false);
-  const { activeCommunityId, members, roles, fetchMembers } =
-    useCommunityStore();
+  const { members, roles, fetchMembers } = useCommunityStore();
+
+  const channelMatch = useMatch({
+    from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
+    shouldThrow: false,
+  });
+  const podId = channelMatch?.params.podId ?? null;
+  const communityId = channelMatch?.params.communityId ?? null;
 
   useEffect(() => {
-    if (activeCommunityId) {
-      fetchMembers(activeCommunityId);
+    if (podId && communityId) {
+      fetchMembers(podId, communityId);
     }
-  }, [activeCommunityId, fetchMembers]);
+  }, [podId, communityId, fetchMembers]);
 
   const memberList = useMemo(
-    () => (activeCommunityId ? (members[activeCommunityId] ?? []) : []),
-    [activeCommunityId, members],
+    () =>
+      podId && communityId
+        ? (members[podId]?.[communityId] ?? [])
+        : [],
+    [podId, communityId, members],
   );
   const roleList = useMemo(
-    () => (activeCommunityId ? (roles[activeCommunityId] ?? []) : []),
-    [activeCommunityId, roles],
+    () =>
+      podId && communityId
+        ? (roles[podId]?.[communityId] ?? [])
+        : [],
+    [podId, communityId, roles],
   );
 
   const memberGroups = useMemo(

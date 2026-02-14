@@ -5,69 +5,116 @@ import { createPodClient } from "@/lib/api/pod-client";
 import type { components } from "@/lib/api/pod";
 import { useCommunityStore } from "@/stores/communities";
 import { useMessageStore } from "@/stores/messages";
-import { gateway } from "@/lib/gateway/connection";
+import { GatewayConnection } from "@/lib/gateway/connection";
 import { handleReady } from "@/lib/gateway/handler";
 
 export type PodUser = components["schemas"]["UserInfo"];
 
+// ---------------------------------------------------------------------------
+// Per-pod gateway instances (not serializable — stored outside zustand)
+// ---------------------------------------------------------------------------
+
+const gatewayMap = new Map<string, GatewayConnection>();
+
+export function getGateway(podId: string): GatewayConnection | undefined {
+  return gatewayMap.get(podId);
+}
+
+// ---------------------------------------------------------------------------
+// Per-pod timers & retry state
+// ---------------------------------------------------------------------------
+
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1_000;
 
-interface PodState {
-  podId: string | null;
-  podUrl: string | null;
-  pat: string | null;
-  refreshToken: string | null;
+const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const retryCounts = new Map<string, number>();
+
+function clearRetry(podId: string) {
+  const timer = retryTimers.get(podId);
+  if (timer) {
+    clearTimeout(timer);
+    retryTimers.delete(podId);
+  }
+  retryCounts.delete(podId);
+}
+
+function scheduleRetry(podId: string, fn: () => void): boolean {
+  const count = retryCounts.get(podId) ?? 0;
+  if (count >= MAX_RETRIES) return false;
+  const delay = BASE_DELAY_MS * Math.pow(2, count);
+  retryCounts.set(podId, count + 1);
+  retryTimers.set(podId, setTimeout(fn, delay));
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface PodConnectionData {
+  podId: string;
+  podUrl: string;
+  podName: string;
+  podIcon?: string;
+  pat: string;
+  refreshToken: string;
   wsTicket: string | null;
   wsUrl: string | null;
-  user: PodUser | null;
+  user: PodUser;
   connected: boolean;
   connecting: boolean;
   error: string | null;
-
-  connectToPod: (podId: string, podUrl: string) => Promise<void>;
-  reconnect: () => Promise<void>;
-  refreshPat: () => Promise<void>;
-  disconnect: () => void;
-  scheduleRefresh: (expiresIn: number) => void;
 }
 
-let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let retryTimer: ReturnType<typeof setTimeout> | null = null;
-let retryCount = 0;
+interface PodState {
+  pods: Record<string, PodConnectionData>;
+  activePodId: string | null;
 
-function clearRetry() {
-  if (retryTimer) {
-    clearTimeout(retryTimer);
-    retryTimer = null;
-  }
-  retryCount = 0;
+  connectToPod: (
+    podId: string,
+    podUrl: string,
+    podName: string,
+    podIcon?: string,
+  ) => Promise<void>;
+  reconnect: (podId: string) => Promise<void>;
+  refreshPat: (podId: string) => Promise<void>;
+  disconnectFromPod: (podId: string) => void;
+  disconnectAll: () => void;
+  scheduleRefresh: (podId: string, expiresIn: number) => void;
+  setActivePod: (podId: string) => void;
 }
 
-function scheduleRetry(fn: () => void) {
-  if (retryCount >= MAX_RETRIES) return false;
-  const delay = BASE_DELAY_MS * Math.pow(2, retryCount);
-  retryCount++;
-  retryTimer = setTimeout(fn, delay);
-  return true;
-}
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
 export const usePodStore = create<PodState>()(
   persist(
     (set, get) => ({
-      podId: null,
-      podUrl: null,
-      pat: null,
-      refreshToken: null,
-      wsTicket: null,
-      wsUrl: null,
-      user: null,
-      connected: false,
-      connecting: false,
-      error: null,
+      pods: {},
+      activePodId: null,
 
-      connectToPod: async (podId: string, podUrl: string) => {
-        set({ connecting: true, error: null });
+      setActivePod: (podId) => set({ activePodId: podId }),
+
+      connectToPod: async (podId, podUrl, podName, podIcon) => {
+        // Set connecting state for this pod
+        set((state) => ({
+          pods: {
+            ...state.pods,
+            [podId]: {
+              ...state.pods[podId],
+              podId,
+              podUrl,
+              podName,
+              podIcon,
+              connected: false,
+              connecting: true,
+              error: null,
+            },
+          },
+        }));
 
         try {
           // 1. Get SIA from Hub
@@ -92,31 +139,43 @@ export const usePodStore = create<PodState>()(
           }
 
           // 3. Store results
-          clearRetry();
-          set({
-            podId,
-            podUrl,
-            pat: loginData.access_token,
-            refreshToken: loginData.refresh_token,
-            wsTicket: loginData.ws_ticket,
-            wsUrl: loginData.ws_url,
-            user: loginData.user,
-            connected: true,
-            connecting: false,
-            error: null,
-          });
+          clearRetry(podId);
+          set((state) => ({
+            pods: {
+              ...state.pods,
+              [podId]: {
+                podId,
+                podUrl,
+                podName,
+                podIcon,
+                pat: loginData.access_token,
+                refreshToken: loginData.refresh_token,
+                wsTicket: loginData.ws_ticket,
+                wsUrl: loginData.ws_url,
+                user: loginData.user,
+                connected: true,
+                connecting: false,
+                error: null,
+              },
+            },
+          }));
 
           // 4. Schedule PAT refresh
-          get().scheduleRefresh(loginData.expires_in);
+          get().scheduleRefresh(podId, loginData.expires_in);
 
-          // 6. Connect to Gateway WebSocket in parallel — READY merges on top
+          // 5. Connect to Gateway WebSocket
           if (loginData.ws_url && loginData.ws_ticket) {
-            gateway
-              .connect(loginData.ws_url, loginData.ws_ticket)
-              .then(handleReady)
+            const existingGw = gatewayMap.get(podId);
+            if (existingGw) existingGw.disconnect();
+
+            const gw = new GatewayConnection(podId);
+            gatewayMap.set(podId, gw);
+
+            gw.connect(loginData.ws_url, loginData.ws_ticket)
+              .then((payload) => handleReady(payload, podId))
               .catch((gwErr) => {
                 console.warn(
-                  "[pod] Gateway connection failed, REST data already loaded",
+                  `[pod:${podId}] Gateway connection failed, REST data already loaded`,
                   gwErr,
                 );
               });
@@ -124,158 +183,253 @@ export const usePodStore = create<PodState>()(
         } catch (err) {
           const message =
             err instanceof Error ? err.message : "Connection failed";
-          const willRetry = scheduleRetry(() =>
-            get().connectToPod(podId, podUrl),
+          const willRetry = scheduleRetry(podId, () =>
+            get().connectToPod(podId, podUrl, podName, podIcon),
           );
-          set({
-            connecting: willRetry,
-            connected: false,
-            error: willRetry
-              ? `${message} — retrying (${retryCount}/${MAX_RETRIES})…`
-              : message,
-          });
+          set((state) => ({
+            pods: {
+              ...state.pods,
+              [podId]: {
+                ...state.pods[podId],
+                podId,
+                podUrl,
+                podName,
+                podIcon,
+                connecting: willRetry,
+                connected: false,
+                error: willRetry
+                  ? `${message} — retrying (${retryCounts.get(podId) ?? 0}/${MAX_RETRIES})…`
+                  : message,
+              } as PodConnectionData,
+            },
+          }));
         }
       },
 
-      reconnect: async () => {
-        const { podId, podUrl, refreshToken } = get();
-        if (!podId || !podUrl || !refreshToken) return;
+      reconnect: async (podId) => {
+        const conn = get().pods[podId];
+        if (!conn?.refreshToken) return;
 
-        set({ connecting: true, error: null });
+        set((state) => ({
+          pods: {
+            ...state.pods,
+            [podId]: { ...conn, connecting: true, error: null },
+          },
+        }));
 
         try {
-          // Only request a new WS ticket if the gateway isn't already connected
-          const needsGateway = gateway.status !== "connected";
-          const podClient = createPodClient(podUrl);
+          const existingGw = gatewayMap.get(podId);
+          const needsGateway = !existingGw || existingGw.status !== "connected";
+          const podClient = createPodClient(conn.podUrl);
           const { data, error } = await podClient.POST("/api/v1/auth/refresh", {
             body: {
-              refresh_token: refreshToken,
+              refresh_token: conn.refreshToken,
               include_ws_ticket: needsGateway,
             },
           });
 
           if (error || !data) {
             // Refresh token expired — fall back to full SIA flow
-            await get().connectToPod(podId, podUrl);
+            await get().connectToPod(
+              podId,
+              conn.podUrl,
+              conn.podName,
+              conn.podIcon,
+            );
             return;
           }
 
-          clearRetry();
-          set({
-            pat: data.access_token,
-            refreshToken: data.refresh_token,
-            wsTicket: data.ws_ticket ?? null,
-            wsUrl: data.ws_url ?? null,
-            connected: true,
-            connecting: false,
-          });
+          clearRetry(podId);
+          set((state) => ({
+            pods: {
+              ...state.pods,
+              [podId]: {
+                ...state.pods[podId],
+                pat: data.access_token,
+                refreshToken: data.refresh_token,
+                wsTicket: data.ws_ticket ?? null,
+                wsUrl: data.ws_url ?? null,
+                connected: true,
+                connecting: false,
+              },
+            },
+          }));
 
-          get().scheduleRefresh(data.expires_in);
+          get().scheduleRefresh(podId, data.expires_in);
 
-          // Fetch communities via REST immediately (fast path)
-          useCommunityStore.getState().fetchCommunities();
+          // Fetch communities via REST immediately
+          useCommunityStore.getState().fetchCommunities(podId);
 
-          // Connect to Gateway in parallel — READY merges on top
+          // Connect to Gateway in parallel
           if (data.ws_url && data.ws_ticket) {
-            gateway
-              .connect(data.ws_url, data.ws_ticket)
-              .then(handleReady)
+            const oldGw = gatewayMap.get(podId);
+            if (oldGw) oldGw.disconnect();
+
+            const gw = new GatewayConnection(podId);
+            gatewayMap.set(podId, gw);
+
+            gw.connect(data.ws_url, data.ws_ticket)
+              .then((payload) => handleReady(payload, podId))
               .catch((gwErr) => {
                 console.warn(
-                  "[pod] Gateway reconnect failed, REST data already loaded",
+                  `[pod:${podId}] Gateway reconnect failed, REST data already loaded`,
                   gwErr,
                 );
               });
           }
         } catch {
           // Pod unreachable — fall back to SIA with backoff
-          await get().connectToPod(podId, podUrl);
+          const conn = get().pods[podId];
+          if (conn) {
+            await get().connectToPod(
+              podId,
+              conn.podUrl,
+              conn.podName,
+              conn.podIcon,
+            );
+          }
         }
       },
 
-      refreshPat: async () => {
-        const { podUrl, refreshToken } = get();
-        if (!podUrl || !refreshToken) return;
+      refreshPat: async (podId) => {
+        const conn = get().pods[podId];
+        if (!conn?.podUrl || !conn?.refreshToken) return;
 
         try {
-          const podClient = createPodClient(podUrl);
+          const podClient = createPodClient(conn.podUrl);
           const { data, error } = await podClient.POST("/api/v1/auth/refresh", {
-            body: { refresh_token: refreshToken },
+            body: { refresh_token: conn.refreshToken },
           });
 
           if (error || !data) {
             throw new Error("Failed to refresh PAT");
           }
 
-          set({
-            pat: data.access_token,
-            refreshToken: data.refresh_token,
-          });
+          set((state) => ({
+            pods: {
+              ...state.pods,
+              [podId]: {
+                ...state.pods[podId],
+                pat: data.access_token,
+                refreshToken: data.refresh_token,
+              },
+            },
+          }));
 
-          get().scheduleRefresh(data.expires_in);
+          get().scheduleRefresh(podId, data.expires_in);
         } catch {
-          get().disconnect();
+          get().disconnectFromPod(podId);
         }
       },
 
-      disconnect: () => {
-        clearRetry();
-        if (refreshTimer) {
-          clearTimeout(refreshTimer);
-          refreshTimer = null;
+      disconnectFromPod: (podId) => {
+        clearRetry(podId);
+        const timer = refreshTimers.get(podId);
+        if (timer) {
+          clearTimeout(timer);
+          refreshTimers.delete(podId);
         }
-        gateway.disconnect();
-        useCommunityStore.getState().reset();
-        useMessageStore.getState().reset();
-        set({
-          podId: null,
-          podUrl: null,
-          pat: null,
-          refreshToken: null,
-          wsTicket: null,
-          wsUrl: null,
-          user: null,
-          connected: false,
-          connecting: false,
-          error: null,
+        const gw = gatewayMap.get(podId);
+        if (gw) {
+          gw.disconnect();
+          gatewayMap.delete(podId);
+        }
+        useCommunityStore.getState().resetPod(podId);
+        useMessageStore.getState().resetPod(podId);
+        set((state) => {
+          const next = { ...state.pods };
+          delete next[podId];
+          return {
+            pods: next,
+            activePodId: state.activePodId === podId ? null : state.activePodId,
+          };
         });
       },
 
-      scheduleRefresh: (expiresIn: number) => {
-        if (refreshTimer) {
-          clearTimeout(refreshTimer);
-          refreshTimer = null;
+      disconnectAll: () => {
+        for (const podId of Object.keys(get().pods)) {
+          clearRetry(podId);
+          const timer = refreshTimers.get(podId);
+          if (timer) clearTimeout(timer);
+          const gw = gatewayMap.get(podId);
+          if (gw) gw.disconnect();
         }
+        refreshTimers.clear();
+        gatewayMap.clear();
+        useCommunityStore.getState().reset();
+        useMessageStore.getState().reset();
+        set({ pods: {}, activePodId: null });
+      },
 
-        // Refresh 60 seconds before expiry
+      scheduleRefresh: (podId, expiresIn) => {
+        const existing = refreshTimers.get(podId);
+        if (existing) clearTimeout(existing);
+
         const delay = Math.max(expiresIn * 1000 - 60_000, 0);
-
-        refreshTimer = setTimeout(() => {
-          get().refreshPat();
-        }, delay);
+        refreshTimers.set(
+          podId,
+          setTimeout(() => {
+            get().refreshPat(podId);
+          }, delay),
+        );
       },
     }),
     {
-      name: "voxora-pod",
+      name: "voxora-pods",
       partialize: (state) => ({
-        podId: state.podId,
-        podUrl: state.podUrl,
-        pat: state.pat,
-        refreshToken: state.refreshToken,
-        wsTicket: state.wsTicket,
-        wsUrl: state.wsUrl,
-        user: state.user,
+        pods: Object.fromEntries(
+          Object.entries(state.pods).map(([id, conn]) => [
+            id,
+            {
+              podId: conn.podId,
+              podUrl: conn.podUrl,
+              podName: conn.podName,
+              podIcon: conn.podIcon,
+              pat: conn.pat,
+              refreshToken: conn.refreshToken,
+              wsTicket: conn.wsTicket,
+              wsUrl: conn.wsUrl,
+              user: conn.user,
+            },
+          ]),
+        ),
+        activePodId: state.activePodId,
       }),
+      merge: (persisted, current) => {
+        const persistedState = persisted as Partial<PodState>;
+        const pods: Record<string, PodConnectionData> = {};
+
+        if (persistedState.pods) {
+          for (const [id, conn] of Object.entries(persistedState.pods)) {
+            const c = conn as PodConnectionData;
+            // Skip entries missing required fields (e.g. old store format)
+            if (!c.podUrl || !c.refreshToken) continue;
+            pods[id] = {
+              ...c,
+              podId: c.podId ?? id,
+              podName: c.podName ?? id,
+              connected: false,
+              connecting: false,
+              error: null,
+            };
+          }
+        }
+
+        return {
+          ...(current as PodState),
+          pods,
+          activePodId: persistedState.activePodId ?? null,
+        };
+      },
     },
   ),
 );
 
-// On load, if we have persisted pod state, reconnect using refresh token (no SIA)
-const initialPodState = usePodStore.getState();
-if (
-  initialPodState.podId &&
-  initialPodState.podUrl &&
-  initialPodState.refreshToken
-) {
-  usePodStore.getState().reconnect();
+// On load, reconnect all persisted pods
+const initialPods = usePodStore.getState().pods;
+for (const podId of Object.keys(initialPods)) {
+  const conn = initialPods[podId];
+  if (conn?.refreshToken) {
+    usePodStore.getState().reconnect(podId);
+  }
 }

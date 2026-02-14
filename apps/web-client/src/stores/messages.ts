@@ -13,6 +13,7 @@ export type Message = components["schemas"]["Message"];
 /** A message that has been optimistically inserted but not yet confirmed. */
 export interface PendingMessage {
   nonce: string;
+  podId: string;
   channel_id: string;
   content: string;
   reply_to: string | null;
@@ -37,11 +38,31 @@ interface ChannelMessages {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Composite key for pod-scoped channel data. */
+export function channelKey(podId: string, channelId: string): string {
+  return `${podId}:${channelId}`;
+}
+
+function getPodClient(podId: string) {
+  const conn = usePodStore.getState().pods[podId];
+  if (!conn?.podUrl || !conn?.pat) throw new Error("Not connected to pod");
+  return createPodClient(conn.podUrl, conn.pat);
+}
+
+let nonceCounter = 0;
+function generateNonce(): string {
+  return `${Date.now()}-${++nonceCounter}`;
+}
+
+// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
 interface MessagesState {
-  /** channelId → ordered messages (oldest first) */
+  /** composite key (podId:channelId) → ordered messages (oldest first) */
   byChannel: Record<string, ChannelMessages>;
   /** nonce → pending message (optimistic sends awaiting server confirmation) */
   pending: Record<string, PendingMessage>;
@@ -50,52 +71,55 @@ interface MessagesState {
 
   // Actions
   fetchMessages: (
+    podId: string,
     channelId: string,
     opts?: { before?: string; after?: string },
   ) => Promise<void>;
   sendMessage: (
+    podId: string,
     channelId: string,
     content: string,
     replyTo?: string | null,
   ) => Promise<void>;
   editMessage: (
+    podId: string,
     channelId: string,
     messageId: string,
     content: string,
   ) => Promise<void>;
-  deleteMessage: (channelId: string, messageId: string) => Promise<void>;
+  deleteMessage: (
+    podId: string,
+    channelId: string,
+    messageId: string,
+  ) => Promise<void>;
   addReaction: (
+    podId: string,
     channelId: string,
     messageId: string,
     emoji: string,
   ) => Promise<void>;
   removeReaction: (
+    podId: string,
     channelId: string,
     messageId: string,
     emoji: string,
   ) => Promise<void>;
 
   // Gateway-driven mutations (called from handler.ts)
-  gatewayMessageCreate: (payload: MessagePayload) => void;
-  gatewayMessageUpdate: (payload: MessagePayload) => void;
-  gatewayMessageDelete: (channelId: string, messageId: string) => void;
-  gatewayReactionAdd: (payload: ReactionPayload) => void;
-  gatewayReactionRemove: (payload: ReactionPayload) => void;
+  gatewayMessageCreate: (podId: string, payload: MessagePayload) => void;
+  gatewayMessageUpdate: (podId: string, payload: MessagePayload) => void;
+  gatewayMessageDelete: (
+    podId: string,
+    channelId: string,
+    messageId: string,
+  ) => void;
+  gatewayReactionAdd: (podId: string, payload: ReactionPayload) => void;
+  gatewayReactionRemove: (podId: string, payload: ReactionPayload) => void;
 
   // Helpers
-  clearChannel: (channelId: string) => void;
+  clearChannel: (podId: string, channelId: string) => void;
+  resetPod: (podId: string) => void;
   reset: () => void;
-}
-
-function getPodClient() {
-  const { podUrl, pat } = usePodStore.getState();
-  if (!podUrl || !pat) throw new Error("Not connected to pod");
-  return createPodClient(podUrl, pat);
-}
-
-let nonceCounter = 0;
-function generateNonce(): string {
-  return `${Date.now()}-${++nonceCounter}`;
 }
 
 export const useMessageStore = create<MessagesState>()((set, get) => ({
@@ -107,9 +131,10 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
   // REST actions
   // ---------------------------------------------------------------------------
 
-  fetchMessages: async (channelId, opts) => {
+  fetchMessages: async (podId, channelId, opts) => {
+    const key = channelKey(podId, channelId);
     const { before, after } = opts ?? {};
-    const existing = get().byChannel[channelId];
+    const existing = get().byChannel[key];
     const isPaginating = before !== undefined || after !== undefined;
 
     // Skip re-fetching if we already have messages for this channel (initial load only)
@@ -123,7 +148,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     set((state) => ({
       byChannel: {
         ...state.byChannel,
-        [channelId]: {
+        [key]: {
           messages: existing?.messages ?? [],
           hasOlder: existing?.hasOlder ?? true,
           hasNewer: existing?.hasNewer ?? false,
@@ -133,7 +158,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }));
 
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       const { data, error } = await client.GET(
         "/api/v1/channels/{channel_id}/messages",
         {
@@ -151,8 +176,8 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
       if (error || !data) throw new Error("Failed to fetch messages");
 
       set((state) => {
-        const prev = state.byChannel[channelId]?.messages ?? [];
-        const prevState = state.byChannel[channelId];
+        const prev = state.byChannel[key]?.messages ?? [];
+        const prevState = state.byChannel[key];
         // Sort messages oldest-first by id
         const fetched = [...data.data].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -179,7 +204,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
         return {
           byChannel: {
             ...state.byChannel,
-            [channelId]: {
+            [key]: {
               messages: merged,
               hasOlder,
               hasNewer,
@@ -192,7 +217,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
       set((state) => ({
         byChannel: {
           ...state.byChannel,
-          [channelId]: {
+          [key]: {
             messages: existing?.messages ?? [],
             hasOlder: existing?.hasOlder ?? true,
             hasNewer: existing?.hasNewer ?? false,
@@ -203,13 +228,14 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }
   },
 
-  sendMessage: async (channelId, content, replyTo) => {
+  sendMessage: async (podId, channelId, content, replyTo) => {
     const nonce = generateNonce();
-    const userId = usePodStore.getState().user?.id ?? "";
+    const userId = usePodStore.getState().pods[podId]?.user?.id ?? "";
 
     // Optimistic insert
     const pendingMsg: PendingMessage = {
       nonce,
+      podId,
       channel_id: channelId,
       content,
       reply_to: replyTo ?? null,
@@ -221,7 +247,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }));
 
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       await client.POST("/api/v1/channels/{channel_id}/messages", {
         params: { path: { channel_id: channelId } },
         body: {
@@ -248,9 +274,10 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }
   },
 
-  editMessage: async (channelId, messageId, content) => {
+  editMessage: async (podId, channelId, messageId, content) => {
+    const key = channelKey(podId, channelId);
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       const { data, error } = await client.PATCH(
         "/api/v1/channels/{channel_id}/messages/{message_id}",
         {
@@ -265,12 +292,12 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
 
       // Optimistically update locally (gateway will also send MESSAGE_UPDATE)
       set((state) => {
-        const channelMsgs = state.byChannel[channelId];
+        const channelMsgs = state.byChannel[key];
         if (!channelMsgs) return state;
         return {
           byChannel: {
             ...state.byChannel,
-            [channelId]: {
+            [key]: {
               ...channelMsgs,
               messages: channelMsgs.messages.map((m) =>
                 m.id === messageId ? { ...m, ...data } : m,
@@ -284,9 +311,10 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }
   },
 
-  deleteMessage: async (channelId, messageId) => {
+  deleteMessage: async (podId, channelId, messageId) => {
+    const key = channelKey(podId, channelId);
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       await client.DELETE(
         "/api/v1/channels/{channel_id}/messages/{message_id}",
         {
@@ -298,12 +326,12 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
 
       // Optimistically remove (gateway will also send MESSAGE_DELETE)
       set((state) => {
-        const channelMsgs = state.byChannel[channelId];
+        const channelMsgs = state.byChannel[key];
         if (!channelMsgs) return state;
         return {
           byChannel: {
             ...state.byChannel,
-            [channelId]: {
+            [key]: {
               ...channelMsgs,
               messages: channelMsgs.messages.filter((m) => m.id !== messageId),
             },
@@ -315,9 +343,9 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }
   },
 
-  addReaction: async (channelId, messageId, emoji) => {
+  addReaction: async (podId, channelId, messageId, emoji) => {
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       await client.PUT(
         "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
         {
@@ -331,9 +359,9 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     }
   },
 
-  removeReaction: async (channelId, messageId, emoji) => {
+  removeReaction: async (podId, channelId, messageId, emoji) => {
     try {
-      const client = getPodClient();
+      const client = getPodClient(podId);
       await client.DELETE(
         "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/{emoji}",
         {
@@ -351,9 +379,10 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
   // Gateway-driven mutations
   // ---------------------------------------------------------------------------
 
-  gatewayMessageCreate: (payload) => {
+  gatewayMessageCreate: (podId, payload) => {
+    const key = channelKey(podId, payload.channel_id);
     set((state) => {
-      const channelMsgs = state.byChannel[payload.channel_id];
+      const channelMsgs = state.byChannel[key];
 
       // Convert gateway payload to Message shape
       const msg: Message = {
@@ -381,13 +410,13 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
         delete nextPending[payload.nonce];
       } else {
         // No nonce — match by author + channel + content
-        for (const [key, pm] of Object.entries(nextPending)) {
+        for (const [nKey, pm] of Object.entries(nextPending)) {
           if (
             pm.channel_id === payload.channel_id &&
             pm.author_id === payload.author_id &&
             pm.content === payload.content
           ) {
-            delete nextPending[key];
+            delete nextPending[nKey];
             break;
           }
         }
@@ -396,7 +425,7 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
       return {
         byChannel: {
           ...state.byChannel,
-          [payload.channel_id]: {
+          [key]: {
             ...channelMsgs,
             messages: [...channelMsgs.messages, msg],
           },
@@ -406,15 +435,16 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     });
   },
 
-  gatewayMessageUpdate: (payload) => {
+  gatewayMessageUpdate: (podId, payload) => {
+    const key = channelKey(podId, payload.channel_id);
     set((state) => {
-      const channelMsgs = state.byChannel[payload.channel_id];
+      const channelMsgs = state.byChannel[key];
       if (!channelMsgs) return state;
 
       return {
         byChannel: {
           ...state.byChannel,
-          [payload.channel_id]: {
+          [key]: {
             ...channelMsgs,
             messages: channelMsgs.messages.map((m) =>
               m.id === payload.id
@@ -433,15 +463,16 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     });
   },
 
-  gatewayMessageDelete: (channelId, messageId) => {
+  gatewayMessageDelete: (podId, channelId, messageId) => {
+    const key = channelKey(podId, channelId);
     set((state) => {
-      const channelMsgs = state.byChannel[channelId];
+      const channelMsgs = state.byChannel[key];
       if (!channelMsgs) return state;
 
       return {
         byChannel: {
           ...state.byChannel,
-          [channelId]: {
+          [key]: {
             ...channelMsgs,
             messages: channelMsgs.messages.filter((m) => m.id !== messageId),
           },
@@ -450,11 +481,11 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     });
   },
 
-  gatewayReactionAdd: (payload) => {
+  gatewayReactionAdd: (podId, payload) => {
     set((state) => {
       const currentReactions = state.reactions[payload.message_id] ?? [];
       const existing = currentReactions.find((r) => r.emoji === payload.emoji);
-      const myId = usePodStore.getState().user?.id;
+      const myId = usePodStore.getState().pods[podId]?.user?.id;
       const isMe = payload.user_id === myId;
 
       const updated = existing
@@ -471,10 +502,10 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
     });
   },
 
-  gatewayReactionRemove: (payload) => {
+  gatewayReactionRemove: (podId, payload) => {
     set((state) => {
       const currentReactions = state.reactions[payload.message_id] ?? [];
-      const myId = usePodStore.getState().user?.id;
+      const myId = usePodStore.getState().pods[podId]?.user?.id;
       const isMe = payload.user_id === myId;
 
       const updated = currentReactions
@@ -495,11 +526,28 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
   // Helpers
   // ---------------------------------------------------------------------------
 
-  clearChannel: (channelId) => {
+  clearChannel: (podId, channelId) => {
+    const key = channelKey(podId, channelId);
     set((state) => {
       const next = { ...state.byChannel };
-      delete next[channelId];
+      delete next[key];
       return { byChannel: next };
+    });
+  },
+
+  resetPod: (podId) => {
+    set((state) => {
+      const prefix = `${podId}:`;
+      const nextByChannel = { ...state.byChannel };
+      for (const k of Object.keys(nextByChannel)) {
+        if (k.startsWith(prefix)) delete nextByChannel[k];
+      }
+      // Also remove pending messages for this pod
+      const nextPending = { ...state.pending };
+      for (const [nKey, pm] of Object.entries(nextPending)) {
+        if (pm.podId === podId) delete nextPending[nKey];
+      }
+      return { byChannel: nextByChannel, pending: nextPending };
     });
   },
 

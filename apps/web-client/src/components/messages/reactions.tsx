@@ -1,26 +1,26 @@
 import { useMessageStore, type Reaction } from "@/stores/messages";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useChannel } from "./channel-context";
 
 interface MessageReactionsProps {
   reactions: Reaction[];
-  channelId: string;
   messageId: string;
 }
 
 export function MessageReactions({
   reactions,
-  channelId,
   messageId,
 }: MessageReactionsProps) {
+  const { podId, channelId } = useChannel();
   const addReaction = useMessageStore((s) => s.addReaction);
   const removeReaction = useMessageStore((s) => s.removeReaction);
 
   const handleToggle = (emoji: string, alreadyReacted: boolean) => {
     if (alreadyReacted) {
-      removeReaction(channelId, messageId, emoji);
+      removeReaction(podId, channelId, messageId, emoji);
     } else {
-      addReaction(channelId, messageId, emoji);
+      addReaction(podId, channelId, messageId, emoji);
     }
   };
 

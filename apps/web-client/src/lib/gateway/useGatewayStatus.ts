@@ -1,21 +1,30 @@
 /**
- * React hook that subscribes to the gateway connection status.
+ * React hook that subscribes to a pod's gateway connection status.
  *
  * Uses `useSyncExternalStore` so React re-renders exactly when
  * the status changes (connected / connecting / reconnecting / disconnected).
  */
 
-import { useSyncExternalStore } from "react";
-import { gateway, type GatewayStatus } from "./connection";
+import { useCallback, useSyncExternalStore } from "react";
+import { type GatewayStatus } from "./connection";
+import { getGateway } from "@/stores/pod";
 
-function subscribe(onStoreChange: () => void): () => void {
-  return gateway.onStatusChange(onStoreChange);
-}
+export function useGatewayStatus(
+  podId?: string | null,
+): GatewayStatus {
+  const subscribe = useCallback(
+    (onStoreChange: () => void): (() => void) => {
+      const gw = podId ? getGateway(podId) : null;
+      if (!gw) return () => undefined;
+      return gw.onStatusChange(onStoreChange);
+    },
+    [podId],
+  );
 
-function getSnapshot(): GatewayStatus {
-  return gateway.status;
-}
+  const getSnapshot = useCallback((): GatewayStatus => {
+    const gw = podId ? getGateway(podId) : null;
+    return gw?.status ?? "disconnected";
+  }, [podId]);
 
-export function useGatewayStatus(): GatewayStatus {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
