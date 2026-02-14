@@ -104,7 +104,7 @@ Voxora takes a **federated-with-central-identity** approach:
 │                        CLIENTS                          │
 │   ┌──────────┐  ┌──────────┐  ┌──────────┐             │
 │   │   Web    │  │ Desktop  │  │  Mobile  │             │
-│   │  (SPA)   │  │ (Tauri)  │  │(iOS/And) │             │
+│   │  (SPA)   │  │(Electron)│  │(iOS/And) │             │
 │   └────┬─────┘  └────┬─────┘  └────┬─────┘             │
 │        │              │              │                   │
 │        └──────────────┼──────────────┘                   │
@@ -1946,22 +1946,128 @@ All clients share a core SDK that handles:
 | Background | Background audio for voice calls           |
 | Storage    | SQLite for local cache                     |
 
-### 16.5 Push Notifications
+### 16.5 Notification Architecture
 
-Since Pods push real-time events via WebSocket, push notifications for mobile
-require a relay:
+Voxora uses a **tiered notification model** that balances user experience,
+cost, and decentralization. The goal is that no user is stuck without
+real-time notifications, while the Hub operator only bears relay costs for
+paying customers.
 
-1. Client registers push token with the Hub.
-2. Hub provides push token to Pods that the user is a member of.
-3. Pod sends notification payload to Hub push relay.
-4. Hub push relay dispatches to APNs/FCM.
+#### 16.5.1 Preferred Pods (Free Real-Time)
 
-This keeps APNs/FCM credentials centralized at the Hub, and Pods don't need
-to manage push infrastructure.
+Users can mark up to **10 pods as "preferred"** in their client settings
+(stored on the Hub via `PATCH /api/v1/users/@me/preferences`). The client
+maintains **open WebSocket connections** to all preferred pods, giving full
+real-time delivery (MESSAGE_CREATE, typing indicators, presence, etc.)
+without any paid tier or relay involvement.
+
+This is the primary mechanism for free-tier real-time notifications. Users
+pin the pods they care about most, and those pods stay fully live.
+
+#### 16.5.2 Notification Tiers (Non-Preferred Pods)
+
+For pods that are **not** in the user's preferred list, notifications are
+delivered via a tiered fallback:
+
+| Tier | Method | Who bears cost | Setup effort |
+| ---- | ------ | -------------- | ------------ |
+| Managed pod | Hub notification relay | Hub operator (included) | Zero |
+| Paid pod plan | Hub notification relay | Pod operator (subscription) | Zero (just subscribe) |
+| Paid user plan | Hub notification relay | User (subscription) | Zero (just subscribe) |
+| Fallback | Client long-polling | Nobody | Zero |
+
+**Hub notification relay** (paid/managed): The Hub acts as a dumb
+notification router. It never sees message content — only delivery signals.
+Pods push notification envelopes to the Hub, and the Hub forwards them to
+the user's active Hub WebSocket connection.
 
 ```
-Pod ──notify──► Hub Push Relay ──► APNs / FCM ──► Mobile Client
+Pod → Hub:    "users [usr_A, usr_B] have new activity in com_xyz"
+Hub → Client: notification envelope (pod_id, community_id, channel_id, unread_count, has_mention)
+Client:       bumps badge counts in sidebar, fetches actual messages from Pod when user navigates
 ```
+
+Hub relay is enabled when ANY of:
+- The pod is **managed** (Hub-hosted)
+- The pod operator has a **paid pod subscription** that includes relay
+- The user has a **paid user subscription** that includes relay
+
+**Long polling** (free fallback): If Hub relay is not available, the client
+polls each non-preferred pod's `GET /api/v1/unread-counts` endpoint on a
+30–60 second interval. Functional but not instant.
+
+#### 16.5.3 Client Negotiation
+
+On login, the Hub returns notification capability per pod in the user's pod
+list. The client auto-selects the best available method:
+
+```json
+{
+  "pods": [
+    { "pod_id": "pod_01...", "name": "My Gaming Pod", "preferred": true },
+    { "pod_id": "pod_02...", "name": "Work Team", "relay": true },
+    { "pod_id": "pod_03...", "name": "Hobby Club", "relay": false }
+  ],
+  "user_tier": "free"
+}
+```
+
+Client logic (in priority order):
+1. **Preferred pod** → maintain direct WebSocket (full real-time)
+2. **`relay: true`** → subscribe via Hub WebSocket (real-time badges)
+3. **Fallback** → long-poll the pod's unread endpoint (delayed badges)
+
+#### 16.5.4 Platform-Specific Behavior
+
+**Desktop (Electron) — Primary client:**
+- Preferred pods: direct WebSocket connections (up to 10)
+- Hub relay: Hub WebSocket for paid/managed non-preferred pods
+- Long poll: `fetch()` on interval for remaining pods
+- OS notifications: `electron.Notification` triggered by any incoming event
+- Electron keeps a background process in the system tray, so all
+  connections stay alive when the window is minimized
+
+**Web (Browser):**
+- Same model as Desktop (preferred WS, Hub relay, long poll)
+- Browser WebSocket connection limits apply (preferred pod cap of 10
+  stays well within browser limits)
+
+**Mobile (Future — iOS/Android):**
+- Preferred pods: not applicable (OS kills background connections)
+- All mobile push flows through the Hub — APNs/FCM credentials are
+  app-scoped (only the app publisher holds them), so pods cannot push
+  directly to devices
+- Fallback: fetch unread counts on app open
+
+| Tier | Mobile push | Rate limit |
+| ---- | ----------- | ---------- |
+| Managed pod | Full push via Hub (all activity) | None |
+| Paid pod plan | Full push via Hub (all activity) | None |
+| Free pod | Mentions-only push via Hub | 100/user/day per pod |
+| No setup | No mobile push, app fetches on open | N/A |
+
+The free tier "mentions-only" push keeps the Hub's cost negligible (each
+push is a single small HTTP POST to APNs/FCM) while ensuring users on
+free self-hosted pods still get notified for the things that matter most.
+Rate limiting per-pod prevents abuse — a malicious pod cannot spam a
+user's device.
+
+Mobile clients register their device push token with the Hub (not with
+individual pods). The Hub maintains the mapping of user → device tokens
+and dispatches push notifications when pods report activity via
+`POST /api/v1/notifications/push`.
+
+#### 16.5.5 What the Hub Never Sees
+
+Regardless of tier, the Hub notification relay only receives:
+- `user_id` — who to notify
+- `pod_id`, `community_id`, `channel_id` — where the activity is
+- `type` — unread vs. mention
+- `delta` — count increment
+
+The Hub **never** sees: message content, author identity, timestamps,
+attachments, or any payload data. Pods handle all content; the Hub handles
+the delivery graph.
 
 ---
 
@@ -2082,7 +2188,7 @@ E2EE is **not** in MVP scope. When implemented:
 | Database       | PostgreSQL 16       | Embedded or external    |
 | Cache          | Redis or in-process | Optional for small pods |
 | Gateway        | Tokio WebSocket     | Built into API server   |
-| SFU            | mediasoup           | Voice/Video             |
+| SFU            | mediasoup (Rust crate) | Voice/Video — separate `voxora-sfu` sidecar binary |
 | Object Storage | Local FS or S3      | Attachments             |
 
 ### 19.3 Performance Targets
@@ -2172,7 +2278,9 @@ E2EE is **not** in MVP scope. When implemented:
 
 - [ ] Hub: MFA (TOTP + Passkeys)
 - [ ] Hub: Pod verification flow
-- [ ] Hub: Push notification relay
+- [ ] Hub: Tiered notification relay (paid/managed pods)
+- [ ] Hub: Preferred pods API (`/users/@me/preferences`)
+- [ ] Pod: Unread counts endpoint for long-poll fallback
 - [ ] Hub: TURN credential provisioning
 - [ ] Pod: Voice channels (WebRTC SFU)
 - [ ] Pod: Threads
@@ -2180,13 +2288,15 @@ E2EE is **not** in MVP scope. When implemented:
 - [ ] Pod: File attachments
 - [ ] Pod: Embeds (URL previews)
 - [ ] Pod: Audit log
-- [ ] Pod: Advanced RBAC (custom roles, channel overrides)
+- [ ] Pod: Advanced RBAC (pod-level roles/permissions, channel overrides)
 - [ ] Pod: Typing indicators
 - [ ] Pod: Presence
 - [ ] Desktop Client: Electron shell
 - [ ] Desktop Client: System tray, hotkeys
 - [ ] Desktop Client: Auto-update
 - [ ] Web Client: Voice UI
+- [ ] Pod Admin SPA: First-run setup wizard
+- [ ] Pod Admin SPA: Admin dashboard (verification, storage, logs)
 
 ### Phase 3: GA (Months 9-14)
 
@@ -2194,6 +2304,7 @@ E2EE is **not** in MVP scope. When implemented:
 
 - [ ] Hub: Billing (Stripe integration)
 - [ ] Hub: Managed Pod provisioning
+- [ ] Hub Admin SPA (billing dashboard, managed pod management, platform analytics)
 - [ ] Hub: Social login (GitHub, Google, Apple)
 - [ ] Hub: Global search improvements
 - [ ] Pod: Video channels
@@ -2237,9 +2348,11 @@ E2EE is **not** in MVP scope. When implemented:
 4. **Mobile framework**: React Native vs. Kotlin Multiplatform vs. Flutter.
    Trade-offs between native feel, development speed, and WebRTC support.
 
-5. **SFU implementation**: Build custom SFU in Rust (via webrtc-rs/str0m) or
-   use Pion/mediasoup/LiveKit as a sidecar? Custom gives more control;
-   existing solutions are more battle-tested.
+5. **SFU implementation**: ~~Build custom SFU in Rust (via webrtc-rs/str0m) or
+   use Pion/mediasoup/LiveKit as a sidecar?~~ **RESOLVED**: Use the `mediasoup`
+   Rust crate in a separate sidecar binary (`voxora-sfu`). The Pod API spawns
+   and supervises the sidecar; IPC is JSON-over-Unix-socket. This gives fault
+   isolation, independent scaling, and avoids a Node.js dependency.
 
 6. **Message search**: Full-text search within a Pod. Options: PostgreSQL
    FTS, Meilisearch sidecar, Tantivy (Rust-native). Performance and

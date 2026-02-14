@@ -793,23 +793,28 @@ apps/web-client/
 │   ├── routes/
 │   │   ├── __root.tsx              # Root layout (providers, Toaster, etc.)
 │   │   ├── login.tsx               # /login — OIDC login initiation
+│   │   ├── signup.tsx              # /signup — Registration
 │   │   ├── callback.tsx            # /callback — OIDC redirect handler
-│   │   ├── _authenticated.tsx      # Layout route — auth guard (redirects to /login)
+│   │   ├── _authenticated.tsx      # Layout route — auth guard + three-panel shell
 │   │   ├── _authenticated/
-│   │   │   ├── index.tsx           # / — Home / pod browser
-│   │   │   ├── community/
-│   │   │   │   ├── $communityId.tsx          # /community/$communityId layout
-│   │   │   │   └── $communityId/
-│   │   │   │       ├── index.tsx             # Redirects to default channel
-│   │   │   │       └── channel/
-│   │   │   │           └── $channelId.tsx    # /community/$communityId/channel/$channelId
-│   │   │   └── settings.tsx        # /settings — User settings
+│   │   │   ├── index.tsx           # / — Pod Browser (home page)
+│   │   │   ├── settings.tsx        # /settings — User settings
+│   │   │   └── pod/
+│   │   │       ├── $podId.tsx                          # /pod/$podId — Pod layout
+│   │   │       └── $podId/
+│   │   │           └── community/
+│   │   │               ├── $communityId.tsx            # /pod/$podId/community/$communityId layout
+│   │   │               └── $communityId/
+│   │   │                   └── channel/
+│   │   │                       └── $channelId.tsx      # /pod/$podId/community/$communityId/channel/$channelId
 │   ├── components/
 │   │   ├── ui/                     # shadcn/ui primitives (auto-generated)
 │   │   │   ├── button.tsx
 │   │   │   ├── input.tsx
 │   │   │   ├── dialog.tsx
 │   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── select.tsx
+│   │   │   ├── label.tsx
 │   │   │   ├── avatar.tsx
 │   │   │   ├── scroll-area.tsx
 │   │   │   ├── separator.tsx
@@ -818,41 +823,45 @@ apps/web-client/
 │   │   │   ├── skeleton.tsx
 │   │   │   ├── badge.tsx
 │   │   │   ├── textarea.tsx
+│   │   │   ├── editor.tsx          # Plate editor primitives
 │   │   │   └── sonner.tsx          # Toast notifications
 │   │   ├── layout/
-│   │   │   ├── sidebar.tsx         # Community list + channel list
+│   │   │   ├── sidebar.tsx         # Community icon strip + channel list (multi-pod aware)
 │   │   │   ├── chat-area.tsx       # Message list + input
 │   │   │   ├── member-list.tsx     # Right sidebar
 │   │   │   └── header.tsx          # Channel header bar
+│   │   ├── communities/
+│   │   │   └── community-dialogs.tsx  # Create Community + Join Invite dialogs (with pod selector)
 │   │   ├── messages/
-│   │   │   ├── message.tsx         # Single message component
-│   │   │   ├── message-list.tsx    # Virtualized scrollable message list
-│   │   │   ├── message-input.tsx   # Textarea with send
-│   │   │   └── reaction.tsx        # Reaction badge + picker
+│   │   │   ├── channel-context.tsx # ChannelProvider + useChannel() — provides podId + channelId
+│   │   │   ├── message-item.tsx    # Single message component (uses useChannel)
+│   │   │   ├── message-list.tsx    # Virtualized scrollable message list (uses useChannel)
+│   │   │   ├── message-input.tsx   # Plate rich-text editor with send (uses useChannel)
+│   │   │   ├── reactions.tsx       # Reaction badges (uses useChannel)
+│   │   │   └── rich-text-content.tsx # Rich text renderer for message content
+│   │   ├── editor/                 # Plate editor kits
+│   │   │   ├── message-kit.tsx     # Minimal Plate config for message input
+│   │   │   └── ...                 # Other editor plugin kits
 │   │   └── settings/
 │   │       └── user-settings.tsx
 │   ├── stores/
 │   │   ├── auth.ts                 # OIDC tokens, SIA, Hub auth state
-│   │   ├── pod.ts                  # Current Pod connection, PAT
-│   │   ├── communities.ts          # Community + channel state
-│   │   └── messages.ts             # Message cache per channel
+│   │   ├── pod.ts                  # Multi-pod connections (PAT, WS ticket, gateway per pod)
+│   │   ├── communities.ts          # Community + channel state (keyed by podId)
+│   │   └── messages.ts             # Message cache per channel (keyed by podId:channelId)
 │   ├── lib/
 │   │   ├── api/
-│   │   │   ├── hub.ts              # Hub API client
-│   │   │   └── pod.ts              # Pod API client
+│   │   │   ├── hub-client.ts       # Hub API client (openapi-fetch, typed from hub.d.ts)
+│   │   │   ├── hub.d.ts            # Auto-generated Hub OpenAPI types
+│   │   │   ├── pod-client.ts       # Pod API client factory (one per pod)
+│   │   │   └── pod.d.ts            # Auto-generated Pod OpenAPI types
 │   │   ├── gateway/
-│   │   │   ├── connection.ts       # WebSocket connection manager
-│   │   │   ├── events.ts           # Event type definitions
-│   │   │   └── handler.ts          # Dispatch event handler
+│   │   │   ├── connection.ts       # GatewayConnection class (one instance per pod)
+│   │   │   ├── handler.ts          # Dispatch event handler (READY, MESSAGE_*, etc.)
+│   │   │   └── useGatewayStatus.ts # Hook for connection status display
 │   │   ├── oidc.ts                 # PKCE helpers, auth flow
 │   │   └── utils.ts                # cn() helper, misc utilities
-│   └── types/
-│       ├── api.ts                  # API request/response types
-│       ├── gateway.ts              # WebSocket event types
-│       └── models.ts               # Shared model types
 ├── components.json                 # shadcn/ui configuration
-├── tailwind.config.ts              # Tailwind config (shadcn preset)
-├── postcss.config.js               # PostCSS (Tailwind + autoprefixer)
 ├── index.html
 ├── vite.config.mts
 └── package.json
@@ -872,10 +881,20 @@ pnpm add tailwindcss @tailwindcss/vite
 pnpm add class-variance-authority clsx tailwind-merge lucide-react
 pnpm add sonner                       # Toast notifications (used by shadcn Sonner)
 
+# Rich text editor
+pnpm add platejs platejs-react        # Plate editor framework
+
+# Virtualized scrolling
+pnpm add virtua                       # Lightweight virtualizer for message list
+
+# API client
+pnpm add openapi-fetch                # Type-safe API client generated from OpenAPI specs
+
 # shadcn/ui — initialize, then add components as needed
 pnpm dlx shadcn@latest init
 pnpm dlx shadcn@latest add button input dialog dropdown-menu avatar \
-  scroll-area separator tooltip popover skeleton badge textarea sonner
+  scroll-area separator tooltip popover skeleton badge textarea sonner \
+  select label alert-dialog
 ```
 
 ### WS-3.3 Tailwind & shadcn Setup Notes
@@ -921,23 +940,25 @@ The plugin auto-generates `routeTree.gen.ts` from the `src/routes/` directory on
 
 #### Task C-1: Routing, Tailwind & Layout Shell
 
-**Priority: P0**
+**Priority: P0** | **Status: Done**
 
 - Install TanStack Router, Tailwind CSS, and shadcn/ui (see WS-3.2)
 - Configure Vite with `@tanstack/router-plugin/vite` and `@tailwindcss/vite`
 - Initialize shadcn (`pnpm dlx shadcn@latest init`) — choose "New York" style, slate base color, CSS variables enabled
-- Add initial shadcn components: `button`, `input`, `scroll-area`, `separator`, `avatar`, `tooltip`, `skeleton`
+- Add initial shadcn components: `button`, `input`, `scroll-area`, `separator`, `avatar`, `tooltip`, `skeleton`, `select`, `label`, `dialog`, `badge`
 - Create the file-based route tree:
   - `__root.tsx` — wraps the app in providers (Zustand context if needed), renders `<Outlet />` and `<Toaster />`
   - `login.tsx` — public login page
+  - `signup.tsx` — public registration page
   - `callback.tsx` — public OIDC callback
-  - `_authenticated.tsx` — layout route that checks auth state and calls `redirect({ to: "/login" })` via `beforeLoad` if unauthenticated
-  - `_authenticated/index.tsx` — home / pod browser
-  - `_authenticated/community/$communityId.tsx` — community layout with sidebar
-  - `_authenticated/community/$communityId/channel/$channelId.tsx` — channel chat view
+  - `_authenticated.tsx` — layout route that checks auth state, redirects to `/login` if unauthenticated, renders three-panel shell (sidebar + `<Outlet />` + member list + header)
+  - `_authenticated/index.tsx` — Pod Browser home page (connect/disconnect pods, discover pods)
+  - `_authenticated/pod/$podId.tsx` — pod-scoped layout (wraps community routes)
+  - `_authenticated/pod/$podId/community/$communityId.tsx` — community layout
+  - `_authenticated/pod/$podId/community/$communityId/channel/$channelId.tsx` — channel chat view (wraps messages in `ChannelProvider`)
   - `_authenticated/settings.tsx` — user settings
 - Create the three-panel layout shell using Tailwind utility classes:
-  - Left sidebar (w-60, dark bg) — community icons + channel list
+  - Left sidebar — two-column: community icon strip (w-16, grouped by pod) + channel list (w-44)
   - Center chat area (flex-1) — header + messages + input
   - Right member list (w-60, collapsible) — member avatars + names
 - Use shadcn `ScrollArea` for all scrollable panels
@@ -957,7 +978,7 @@ export const Route = createFileRoute("/_authenticated")({
       throw redirect({ to: "/login" });
     }
   },
-  component: () => <Outlet />,
+  component: AuthenticatedLayout, // renders Sidebar + Header + Outlet + MemberList
 });
 ```
 
@@ -966,24 +987,24 @@ export const Route = createFileRoute("/_authenticated")({
 ```tsx
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 
-// Typesafe Link — IDE autocompletes route paths and validates params
+// Typesafe Link — all routes are pod-scoped
 <Link
-  to="/community/$communityId/channel/$channelId"
-  params={{ communityId: "com_01KP...", channelId: "ch_01KP..." }}
+  to="/pod/$podId/community/$communityId/channel/$channelId"
+  params={{ podId: "pod_01J9...", communityId: "com_01KP...", channelId: "ch_01KP..." }}
   className={cn("text-sm", isActive && "text-foreground font-semibold")}
 >
   #general
 </Link>;
 
 // Typesafe params — inferred from the route definition
-const { communityId, channelId } = useParams({
-  from: "/community/$communityId/channel/$channelId",
+const { podId, communityId, channelId } = useParams({
+  from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
 });
 ```
 
 #### Task C-2: OIDC Login Flow
 
-**Priority: P0**
+**Priority: P0** | **Status: Done**
 **Depends on: Hub H-3**
 
 Implement the full PKCE flow:
@@ -1018,87 +1039,120 @@ Implement the full PKCE flow:
 
 5. **Logout**: Clear all tokens, navigate to `/login`
 
-#### Task C-3: Pod Connection Flow
+#### Task C-3: Pod Connection Flow (Multi-Pod)
 
-**Priority: P0**
+**Priority: P0** | **Status: Done**
 **Depends on: C-2, Pod P-2**
 
+The client supports connecting to **multiple pods simultaneously**. Each pod has its own PAT, refresh token, WS ticket, and Gateway connection.
+
+**Pod store (`stores/pod.ts`):**
+- `pods: Record<string, PodConnectionData>` — keyed by `podId`
+- Each entry: `{ podId, podUrl, podName, podIcon, pat, refreshToken, wsTicket, wsUrl, user, connected, connecting, error }`
+- One `GatewayConnection` instance per pod (stored outside Zustand in a `Map<string, GatewayConnection>`)
+
+**Connection flow (per pod):**
 1. Request SIA from Hub: `POST {HUB_URL}/api/v1/oidc/sia` with `{ pod_id }` using Hub access token
 2. Login to Pod: `POST {POD_URL}/api/v1/auth/login` with `{ sia }`
-3. Store PAT, refresh_token, ws_ticket, ws_url in Zustand pod store
-4. Connect to Gateway WebSocket using ws_ticket (see C-5)
-5. On PAT expiry: use Pod refresh token to get new PAT
+3. Store PAT, refresh_token, ws_ticket, ws_url in pod store entry
+4. Create and connect Gateway WebSocket using ws_ticket (see C-5)
+5. On READY: populate community/channel stores keyed by `podId`
+6. Schedule PAT refresh before expiry
+7. On disconnect: clean up gateway, mark pod as disconnected
 
-#### Task C-4: Community & Channel Navigation
+**Pod Browser (`_authenticated/index.tsx`):**
+- Home page showing "My Pods" (from Hub `GET /api/v1/users/@me/pods`) merged with locally connected pods
+- "Discover Pods" grid (from Hub `GET /api/v1/pods?sort=popular`)
+- Search filter for discover section
+- Connect/Disconnect/Open buttons per pod
+- "Open" navigates to first community's default channel: `/pod/$podId/community/$communityId/channel/$channelId`
 
-**Priority: P1**
+#### Task C-4: Community & Channel Navigation (Multi-Pod)
+
+**Priority: P1** | **Status: Done**
 **Depends on: C-3**
 
-- **Sidebar (left)** — built with Tailwind layout utilities + shadcn components:
-  - Top section: community icon buttons (shadcn `Avatar` + `Tooltip`) in a vertical strip
-  - Click community → second column slides in with channel list
-  - Channel list rendered with shadcn `Button` variant `ghost`, grouped by position
-  - Click channel → typesafe navigation:
+- **Sidebar (left)** — two-column layout:
+  - **Column 1 (w-16, icon strip)**: communities grouped by pod, each pod section has a header label + community `Avatar` icons + `Tooltip`. Below all pods: Create Community (+) and Join Invite buttons, and user avatar linking to Settings.
+  - **Column 2 (w-44, channel list)**: only visible when a community is active. Shows community name + list of channels as `Button` variant `ghost`.
+  - Click community → navigates to `/pod/$podId/community/$communityId/channel/$channelId` (default channel)
+  - Click channel → typesafe navigation with `podId` in the URL:
     ```tsx
-    <Link
-      to="/community/$communityId/channel/$channelId"
-      params={{ communityId: community.id, channelId: channel.id }}
-    />
+    navigate({
+      to: "/pod/$podId/community/$communityId/channel/$channelId",
+      params: { podId, communityId, channelId: channel.id },
+    });
     ```
-  - Active channel gets `bg-accent text-accent-foreground` styling
-  - Use shadcn `ScrollArea` for overflow
+  - Active channel gets `bg-accent` styling
+  - Active community gets `ring-2 ring-primary` on avatar
+  - All route params read from URL via `useMatch` (no prop drilling through layout)
 
-- **Header** — shadcn `Separator` below, shows channel name (bold) + topic (muted)
+- **Header** — reads `podId`, `communityId`, `channelId` from `useMatch`, shows channel name (bold) + topic (muted) + gateway connection status badge
 
-- **Join flow**: shadcn `Dialog` triggered by "Join Community" button → `Input` for invite code → `POST /invites/{code}/accept` → refresh community list, show success via `sonner` toast
+- **Member list** — reads route params from `useMatch`, fetches members keyed by `[podId][communityId]`
 
-#### Task C-5: WebSocket Gateway Client
+- **Create Community / Join Invite dialogs** — when multiple pods are connected, show a `Select` dropdown to pick the target pod. When only one pod is connected, the selector is hidden. Callbacks receive `podId` from the dialog.
 
-**Priority: P0**
+- **Home button** in icon strip navigates to `/` (Pod Browser)
+
+#### Task C-5: WebSocket Gateway Client (Multi-Pod)
+
+**Priority: P0** | **Status: Done**
 **Depends on: C-3**
 
-Implement a `GatewayConnection` class/module:
+Implement a `GatewayConnection` class (`lib/gateway/connection.ts`). **One instance per connected pod**, stored in a `Map<string, GatewayConnection>` outside Zustand (not serializable).
 
-1. Connect to `ws_url` from login response
+Each `GatewayConnection` instance:
+
+1. Connect to `ws_url` from pod login response
 2. Send IDENTIFY with `ws_ticket`
-3. On READY: populate community/channel/member stores
+3. On READY: populate community/channel/member stores **keyed by `podId`** (e.g., `communities[podId][communityId]`, `channels[podId][communityId][]`)
 4. Start heartbeat interval from READY's `heartbeat_interval`
-5. On DISPATCH events: update Zustand stores
-   - `MESSAGE_CREATE` → append to message store
+5. On DISPATCH events: update Zustand stores with `podId` context
+   - `MESSAGE_CREATE` → append to message store (key: `podId:channelId`)
    - `MESSAGE_UPDATE` → update in message store
    - `MESSAGE_DELETE` → remove from message store
    - `MESSAGE_REACTION_ADD/REMOVE` → update reactions on message
-   - `CHANNEL_CREATE/UPDATE/DELETE` → update channel store
-   - `COMMUNITY_UPDATE` → update community store
-   - `MEMBER_JOIN/LEAVE/UPDATE` → update member store
-6. On close: attempt reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
-7. Show connection status in the UI via a `Badge` (connected / reconnecting / disconnected)
+   - `CHANNEL_CREATE/UPDATE/DELETE` → update channel store under `[podId][communityId]`
+   - `COMMUNITY_UPDATE` → update community store under `[podId]`
+   - `MEMBER_JOIN/LEAVE/UPDATE` → update member store under `[podId][communityId]`
+6. On close: attempt reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s, max 5 retries)
+7. Connection status: `useGatewayStatus(podId)` hook reads `connecting`/`connected`/`error` from pod store, displayed as a `Badge` in the header
 
 #### Task C-6: Message Sending & Receiving
 
-**Priority: P1**
+**Priority: P1** | **Status: Done**
 **Depends on: C-5, Pod P-5**
 
-- **Message list** — shadcn `ScrollArea` with Tailwind-styled message bubbles:
-  - Load initial history via REST: `GET /channels/{id}/messages?limit=50`
+**ChannelContext** (`components/messages/channel-context.tsx`): The channel view wraps all message components in a `<ChannelProvider podId={podId} channelId={channelId}>`. Child components call `useChannel()` to get `{ podId, channelId }` without prop drilling. This eliminates `podId`/`channelId` props from `MessageList`, `MessageInput`, `MessageItem`, and `MessageReactions`.
+
+- **Message list** (`message-list.tsx`) — uses `virtua` `Virtualizer` for virtualized scrolling:
+  - Load initial history via REST: `GET /channels/{id}/messages?limit=50` (deferred in route loader)
   - New messages arrive via Gateway `MESSAGE_CREATE`
   - Scroll to bottom on new message (if already at bottom)
-  - Infinite scroll up: load older messages with `?before=<oldest_id>`, show shadcn `Skeleton` placeholders while loading
-  - Each message: `Avatar` (left), username (`text-sm font-semibold`), timestamp (`text-xs text-muted-foreground`), content, edited indicator (`Badge` variant `secondary`)
-  - Render message content as plain text (Markdown rendering can come later)
+  - Infinite scroll up/down: fetch older/newer messages with `?before=<oldest_id>` / `?after=<newest_id>`
+  - Compact messages (same author within 5 min): timestamp on hover, no avatar
+  - Loading state: skeleton placeholder based on channel `message_count`
 
-- **Message input** — shadcn `Textarea` at bottom of chat area:
+- **Message item** (`message-item.tsx`) — `memo`-wrapped:
+  - Each message: `Avatar` (left), username (`text-sm font-semibold`), timestamp (`text-xs text-muted-foreground`), content, edited indicator
+  - Content rendered via `RichTextContent` (parses JSON for rich text, plain text for simple strings)
+  - Action buttons on hover (CSS-only): react, edit (own), delete (own)
+  - Inline edit: swaps content with a Plate editor, Enter to save, Esc to cancel
+  - Member lookup: resolves `author_id` → display name/avatar via community members store
+
+- **Message input** (`message-input.tsx`) — **Plate rich-text editor** (not plain textarea):
+  - Uses `MessageKit` plugin set (basic marks only for messages)
   - Send on Enter (Shift+Enter for newline)
+  - Serialization: single plain-text paragraphs stored as plain text, rich content stored as JSON
   - `POST /channels/{id}/messages` with `{ content, nonce: uuid() }`
   - Optimistic insert: show message immediately with `opacity-50` pending state, reconcile with `MESSAGE_CREATE` from Gateway using `nonce`
-  - Edit: click own message → inline edit via `Textarea` swap → `PATCH /channels/{channel_id}/messages/{id}`
-  - Delete: shadcn `DropdownMenu` on own message → "Delete" item → `DELETE /channels/{channel_id}/messages/{id}`
 
-- **Reactions**: shadcn `Popover` with emoji picker on hover → `PUT .../reactions/{emoji}`. Display reaction counts as `Badge` components below message.
+- **Reactions** (`reactions.tsx`): `Badge` components below message, toggle on click (`PUT`/`DELETE .../reactions/{emoji}`). Full emoji picker is TODO.
 
 #### Task C-7: Basic Settings
 
-**Priority: P2**
+**Priority: P2** | **Status: Done**
 **Depends on: C-2**
 
 - Settings page at `/settings` (file: `src/routes/_authenticated/settings.tsx`)
@@ -1515,7 +1569,7 @@ pnpm nx serve web-client
 
 | Package                     | Purpose                                    |
 | --------------------------- | ------------------------------------------ |
-| `zustand`                   | State management                           |
+| `zustand`                   | State management (persisted to localStorage) |
 | `@tanstack/react-router`    | Typesafe file-based routing                |
 | `@tanstack/router-plugin`   | Vite plugin for route tree code generation |
 | `@tanstack/router-devtools` | Router devtools (dev only)                 |
@@ -1525,6 +1579,9 @@ pnpm nx serve web-client
 | `clsx` + `tailwind-merge`   | Class name merging (`cn()` utility)        |
 | `lucide-react`              | Icon library (used by shadcn components)   |
 | `sonner`                    | Toast notification library                 |
+| `platejs` + `platejs-react` | Rich text editor framework (message input) |
+| `virtua`                    | Lightweight virtualizer (message list)     |
+| `openapi-fetch`             | Type-safe API client from OpenAPI specs    |
 | shadcn/ui components        | Pre-built accessible UI primitives         |
 
 ---
@@ -1557,10 +1614,10 @@ P-1 (Pod DB + Config) ───────────────────�
 
 C-1 (Layout Shell) ───┐
 C-2 (OIDC Login) ─────┤
-                       ├── C-3 (Pod Connection) ──┐
-                       │                          ├── C-4 (Navigation)
-                       │                          ├── C-5 (Gateway Client)
-                       │                          │    └── C-6 (Messages)
+                       ├── C-3 (Multi-Pod Connection + Pod Browser) ──┐
+                       │                                              ├── C-4 (Navigation, multi-pod sidebar)
+                       │                                              ├── C-5 (Gateway Client, per-pod WS)
+                       │                                              │    └── C-6 (Messages + ChannelContext)
                        └── C-7 (Settings)
 ```
 
@@ -1613,6 +1670,7 @@ C-2 (OIDC Login) ─────┤
 
 These items are explicitly deferred to later phases. Do NOT implement them:
 
+- Hub Notification Relay (cross-pod unread badges) — Phase 2 (see §14.1)
 - MFA (TOTP, WebAuthn) — Phase 2
 - Voice / video channels — Phase 2
 - Threads — Phase 2
@@ -1623,7 +1681,7 @@ These items are explicitly deferred to later phases. Do NOT implement them:
 - Typing indicators — Phase 2
 - Presence (online/offline/idle) — Phase 2
 - Pod verification flow — Phase 2
-- Push notifications — Phase 2
+- Push notifications (Web Push / Service Worker) — Phase 2
 - Desktop client — Phase 2
 - Mobile clients — Phase 3
 - Billing — Phase 3
@@ -1634,6 +1692,144 @@ These items are explicitly deferred to later phases. Do NOT implement them:
 - Custom emoji — Phase 4
 - Forum / Stage / Announcement channels — Phase 3
 - Gateway RESUME / reconnect with replay — Phase 2 (simple reconnect + re-IDENTIFY is sufficient for Phase 1)
+
+### 14.1 Tiered Notification System (Phase 2 Design)
+
+**Problem:** In Phase 1, the client opens one WebSocket per connected pod. This works for 1–5 pods but doesn't scale — browsers cap concurrent WebSockets, and each connection carries a heartbeat timer and incoming dispatch traffic even when the user isn't looking at that pod.
+
+**Phase 1 mitigation:** Cap active pod WebSocket connections at 10. The current auto-reconnect-all-on-load behavior is acceptable for early usage.
+
+**Phase 2 solution — Tiered notifications with preferred pods:**
+
+Rather than routing all notifications through the Hub (which creates cost for the Hub operator), Phase 2 uses a tiered approach where users get real-time notifications through multiple mechanisms, and the Hub relay is reserved for paid/managed pods.
+
+#### 14.1.1 Preferred Pods (Free Real-Time)
+
+Users can mark up to **10 pods as "preferred"** in their settings. The client maintains **open WebSocket connections** to all preferred pods at all times, giving full real-time delivery without any relay or paid tier.
+
+This is the primary free-tier mechanism. Users pin the pods they care about most, and those stay fully live. Stored on the Hub via `PATCH /api/v1/users/@me/preferences`.
+
+```
+Client connection model:
+- 1 WS per preferred pod (up to 10) — full real-time dispatch
+- 1 WS to Hub (if relay is available for any non-preferred pod)
+- Non-preferred pods without relay: long-poll
+```
+
+#### 14.1.2 Notification Tiers (Non-Preferred Pods)
+
+For pods NOT in the user's preferred list, the client negotiates the best available method:
+
+| Priority | Method | When available | Cost to Hub |
+| -------- | ------ | -------------- | ----------- |
+| 1 | Hub notification relay | Pod is managed, pod has paid plan, or user has paid plan | Paid/included |
+| 2 | Client long-polling | Always (fallback) | Zero |
+
+**Hub notification relay (paid/managed):**
+
+The Hub acts as a dumb notification router. It never sees message content — only delivery signals. Pods control all content; the Hub controls the delivery graph.
+
+```
+Pod → Hub:    "users [usr_A, usr_B] have new activity in com_xyz"
+Hub → Client: notification envelope (pod_id, community_id, channel_id, unread_count, has_mention)
+Client:       bumps badge counts in sidebar, fetches actual messages from Pod when user navigates
+```
+
+Relay is enabled when ANY of:
+- The pod is **managed** (Hub-hosted — included in hosting)
+- The pod operator has a **paid pod subscription** that includes relay
+- The user has a **paid user subscription** that includes relay
+
+Flow:
+
+1. User connects to Hub WS on login (new Hub Gateway endpoint)
+2. Pod receives a new message in channel X
+3. Pod resolves which community members need notification (members not connected to the Pod's own Gateway AND not on a preferred-pod WS)
+4. Pod pushes to Hub: `POST /api/v1/notifications/push` (authenticated via Pod `client_id`/`client_secret`)
+   ```json
+   {
+     "events": [
+       {
+         "user_id": "usr_01H8MZ...",
+         "pod_id": "pod_01J9NX...",
+         "community_id": "com_01KP...",
+         "channel_id": "ch_01KP...",
+         "type": "unread",
+         "delta": 1,
+         "has_mention": false
+       }
+     ]
+   }
+   ```
+5. Hub looks up which users have an active Hub WS and forwards the envelope
+6. Client increments unread badge on that pod/community/channel in the sidebar
+7. When user navigates to that pod, client opens the Pod WS and fetches messages normally
+
+**What the Hub never sees:** message content, author identity, timestamps, attachments — just "user X has N new in channel Y on pod Z."
+
+**Long polling (free fallback):**
+
+If Hub relay is not available, the client polls each non-preferred pod's `GET /api/v1/unread-counts` endpoint on a 30–60 second interval. Functional but not instant.
+
+#### 14.1.3 Client Negotiation
+
+On login, the Hub returns notification capability per pod:
+
+```json
+{
+  "pods": [
+    { "pod_id": "pod_01...", "name": "My Gaming Pod", "preferred": true },
+    { "pod_id": "pod_02...", "name": "Work Team", "relay": true },
+    { "pod_id": "pod_03...", "name": "Hobby Club", "relay": false }
+  ],
+  "user_tier": "free"
+}
+```
+
+Client logic (priority order):
+1. **Preferred pod** → maintain direct WebSocket (full real-time)
+2. **`relay: true`** → subscribe via Hub WebSocket (real-time badges)
+3. **Fallback** → long-poll the pod's unread endpoint (delayed badges)
+
+#### 14.1.4 Desktop (Electron) Specifics
+
+Electron apps run in the background (system tray), so all connection methods keep working when the window is minimized. OS-native notifications are triggered via `electron.Notification` regardless of which delivery method brought the event.
+
+#### 14.1.5 Mobile Push (Phase 3)
+
+Mobile requires APNs (iOS) / FCM (Android) since the OS kills background connections. The same tiered model applies:
+
+All mobile push flows through the Hub. APNs/FCM credentials are app-scoped — only the app publisher (Voxora) holds the keys needed to push to the Voxora app. Pods cannot push directly to devices, which also prevents abuse (a malicious pod could spam notifications if it had direct push access).
+
+| Tier | Mobile push | Rate limit |
+| ---- | ----------- | ---------- |
+| Managed pod | Full push via Hub (all activity) | None |
+| Paid pod plan | Full push via Hub (all activity) | None |
+| Free pod | Mentions-only push via Hub | 100/user/day per pod |
+| No setup | No mobile push, fetch on app open | N/A |
+
+The free tier "mentions-only" push keeps Hub cost negligible (each push is a single small HTTP POST to APNs/FCM) while ensuring users on free self-hosted pods still get notified for things that matter most. Rate limiting per-pod prevents abuse.
+
+Mobile clients register their device push token with the Hub (not with individual pods). The Hub maintains the user → device token mapping and dispatches when pods report activity via `POST /api/v1/notifications/push`. The push payload is minimal — just enough for the client to display "New mention in #channel on Pod Name" and navigate on tap.
+
+#### 14.1.6 Why This Design
+
+- **No user is stuck without notifications** — preferred pods give free real-time for the pods that matter most
+- **Hub relay cost scales with revenue** — only relay for paying customers
+- **Preserves the trust boundary** — Hub handles identity + routing, pods handle content
+- **Natural upsell** — Hub relay is the zero-config premium option, long polling is the free fallback
+
+**New components required:**
+- Hub: `PATCH /api/v1/users/@me/preferences` for preferred pods
+- Hub: client-facing Gateway endpoint (`/gateway`) with IDENTIFY + notification dispatch
+- Hub: `POST /api/v1/notifications/push` endpoint for pods (gated by pod/user tier)
+- Hub: in-memory routing table (user_id → Hub WS connection)
+- Pod: `GET /api/v1/unread-counts` endpoint for long-poll fallback
+- Pod: notification push logic after MESSAGE_CREATE (for users not on Pod Gateway and not on preferred-pod WS)
+- Client: preferred pod connection manager (up to 10 direct WS)
+- Client: Hub WS connection manager (for relay-enabled pods)
+- Client: long-poll fallback for remaining pods
+- Client: unified unread count store across all notification methods
 
 ---
 
