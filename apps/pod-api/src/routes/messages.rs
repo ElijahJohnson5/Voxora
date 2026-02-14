@@ -181,10 +181,22 @@ pub async fn send_message(
 
 #[derive(Debug, Deserialize)]
 pub struct ListMessagesParams {
-    pub before: Option<i64>,
-    pub after: Option<i64>,
-    pub around: Option<i64>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub around: Option<String>,
     pub limit: Option<i64>,
+}
+
+impl ListMessagesParams {
+    fn before_id(&self) -> Option<i64> {
+        self.before.as_deref().and_then(|s| s.parse().ok())
+    }
+    fn after_id(&self) -> Option<i64> {
+        self.after.as_deref().and_then(|s| s.parse().ok())
+    }
+    fn around_id(&self) -> Option<i64> {
+        self.around.as_deref().and_then(|s| s.parse().ok())
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -199,9 +211,9 @@ pub struct ListMessagesResponse {
     tag = "Messages",
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("before" = Option<i64>, Query, description = "Fetch messages before this ID"),
-        ("after" = Option<i64>, Query, description = "Fetch messages after this ID"),
-        ("around" = Option<i64>, Query, description = "Fetch messages around this ID"),
+        ("before" = Option<String>, Query, description = "Fetch messages before this ID"),
+        ("after" = Option<String>, Query, description = "Fetch messages after this ID"),
+        ("around" = Option<String>, Query, description = "Fetch messages around this ID"),
         ("limit" = Option<i64>, Query, description = "Number of messages (1-100, default 50)"),
     ),
     responses(
@@ -227,7 +239,7 @@ pub async fn list_messages(
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
 
-    if let Some(around) = params.around {
+    if let Some(around) = params.around_id() {
         // Fetch half before + half after the target.
         let half = limit / 2;
 
@@ -262,7 +274,7 @@ pub async fn list_messages(
         }));
     }
 
-    if let Some(after) = params.after {
+    if let Some(after) = params.after_id() {
         // Fetch messages after the cursor, ascending.
         let rows: Vec<Message> = diesel_async::RunQueryDsl::load(
             messages::table
@@ -289,7 +301,7 @@ pub async fn list_messages(
         .select(Message::as_select())
         .into_boxed();
 
-    if let Some(before) = params.before {
+    if let Some(before) = params.before_id() {
         query = query.filter(messages::id.lt(before));
     }
 
@@ -309,7 +321,15 @@ pub async fn list_messages(
 #[derive(Debug, Deserialize)]
 pub struct MessagePath {
     pub channel_id: String,
-    pub message_id: i64,
+    pub message_id: String,
+}
+
+impl MessagePath {
+    fn message_id_i64(&self) -> Result<i64, ApiError> {
+        self.message_id
+            .parse()
+            .map_err(|_| ApiError::bad_request("Invalid message ID"))
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -324,7 +344,7 @@ pub struct EditMessageRequest {
     security(("bearer" = [])),
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("message_id" = i64, Path, description = "Message ID"),
+        ("message_id" = String, Path, description = "Message ID"),
     ),
     request_body = EditMessageRequest,
     responses(
@@ -341,12 +361,13 @@ pub async fn edit_message(
     Path(path): Path<MessagePath>,
     Json(body): Json<EditMessageRequest>,
 ) -> Result<Json<Message>, ApiError> {
+    let message_id = path.message_id_i64()?;
     let mut conn = state.db.get().await?;
 
     // Look up message by id + channel_id.
     let message: Message = diesel_async::RunQueryDsl::get_result(
         messages::table
-            .filter(messages::id.eq(path.message_id))
+            .filter(messages::id.eq(message_id))
             .filter(messages::channel_id.eq(&path.channel_id))
             .select(Message::as_select()),
         &mut conn,
@@ -383,7 +404,7 @@ pub async fn edit_message(
     let updated: Message = diesel_async::RunQueryDsl::get_result(
         diesel::update(
             messages::table
-                .filter(messages::id.eq(path.message_id))
+                .filter(messages::id.eq(message_id))
                 .filter(messages::channel_id.eq(&path.channel_id)),
         )
         .set(&changeset)
@@ -425,7 +446,7 @@ pub async fn edit_message(
     security(("bearer" = [])),
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("message_id" = i64, Path, description = "Message ID"),
+        ("message_id" = String, Path, description = "Message ID"),
     ),
     responses(
         (status = 204, description = "Message deleted"),
@@ -439,12 +460,13 @@ pub async fn delete_message(
     State(state): State<AppState>,
     Path(path): Path<MessagePath>,
 ) -> Result<StatusCode, ApiError> {
+    let message_id = path.message_id_i64()?;
     let mut conn = state.db.get().await?;
 
     // Look up message by id + channel_id.
     let message: Message = diesel_async::RunQueryDsl::get_result(
         messages::table
-            .filter(messages::id.eq(path.message_id))
+            .filter(messages::id.eq(message_id))
             .filter(messages::channel_id.eq(&path.channel_id))
             .select(Message::as_select()),
         &mut conn,
@@ -488,7 +510,7 @@ pub async fn delete_message(
     diesel_async::RunQueryDsl::execute(
         diesel::delete(
             messages::table
-                .filter(messages::id.eq(path.message_id))
+                .filter(messages::id.eq(message_id))
                 .filter(messages::channel_id.eq(&path.channel_id)),
         ),
         &mut conn,
@@ -509,7 +531,7 @@ pub async fn delete_message(
         community_id: channel_community_id,
         event_name: EventName::MESSAGE_DELETE.to_string(),
         data: serde_json::json!({
-            "id": path.message_id.to_string(),
+            "id": path.message_id,
             "channel_id": path.channel_id,
         }),
     });
@@ -524,8 +546,16 @@ pub async fn delete_message(
 #[derive(Debug, Deserialize)]
 pub struct ReactionPath {
     pub channel_id: String,
-    pub message_id: i64,
+    pub message_id: String,
     pub emoji: String,
+}
+
+impl ReactionPath {
+    fn message_id_i64(&self) -> Result<i64, ApiError> {
+        self.message_id
+            .parse()
+            .map_err(|_| ApiError::bad_request("Invalid message ID"))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +569,7 @@ pub struct ReactionPath {
     security(("bearer" = [])),
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("message_id" = i64, Path, description = "Message ID"),
+        ("message_id" = String, Path, description = "Message ID"),
         ("emoji" = String, Path, description = "Emoji"),
     ),
     responses(
@@ -554,12 +584,13 @@ pub async fn add_reaction(
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
 ) -> Result<Json<Reaction>, ApiError> {
+    let msg_id = path.message_id_i64()?;
     let mut conn = state.db.get().await?;
 
     // Verify message exists in this channel.
     let message_id: i64 = diesel_async::RunQueryDsl::get_result(
         messages::table
-            .filter(messages::id.eq(path.message_id))
+            .filter(messages::id.eq(msg_id))
             .filter(messages::channel_id.eq(&path.channel_id))
             .select(messages::id),
         &mut conn,
@@ -669,7 +700,7 @@ pub async fn add_reaction(
     security(("bearer" = [])),
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("message_id" = i64, Path, description = "Message ID"),
+        ("message_id" = String, Path, description = "Message ID"),
         ("emoji" = String, Path, description = "Emoji"),
     ),
     responses(
@@ -682,12 +713,13 @@ pub async fn remove_reaction(
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
 ) -> Result<StatusCode, ApiError> {
+    let msg_id = path.message_id_i64()?;
     let mut conn = state.db.get().await?;
 
     // Verify message exists in this channel.
     diesel_async::RunQueryDsl::get_result::<i64>(
         messages::table
-            .filter(messages::id.eq(path.message_id))
+            .filter(messages::id.eq(msg_id))
             .filter(messages::channel_id.eq(&path.channel_id))
             .select(messages::id),
         &mut conn,
@@ -711,7 +743,7 @@ pub async fn remove_reaction(
     diesel_async::RunQueryDsl::execute(
         diesel::delete(
             reactions::table
-                .filter(reactions::message_id.eq(path.message_id))
+                .filter(reactions::message_id.eq(msg_id))
                 .filter(reactions::user_id.eq(&user_id))
                 .filter(reactions::emoji.eq(&path.emoji)),
         ),
@@ -723,7 +755,7 @@ pub async fn remove_reaction(
         community_id: channel_community_id,
         event_name: EventName::MESSAGE_REACTION_REMOVE.to_string(),
         data: serde_json::json!({
-            "message_id": path.message_id.to_string(),
+            "message_id": path.message_id,
             "user_id": user_id,
             "emoji": path.emoji,
             "channel_id": path.channel_id,
@@ -743,7 +775,7 @@ pub async fn remove_reaction(
     tag = "Reactions",
     params(
         ("channel_id" = String, Path, description = "Channel ID"),
-        ("message_id" = i64, Path, description = "Message ID"),
+        ("message_id" = String, Path, description = "Message ID"),
         ("emoji" = String, Path, description = "Emoji"),
     ),
     responses(
@@ -755,12 +787,13 @@ pub async fn list_reactions(
     State(state): State<AppState>,
     Path(path): Path<ReactionPath>,
 ) -> Result<Json<Vec<Reaction>>, ApiError> {
+    let msg_id = path.message_id_i64()?;
     let mut conn = state.db.get().await?;
 
     // Verify message exists in this channel.
     diesel_async::RunQueryDsl::get_result::<i64>(
         messages::table
-            .filter(messages::id.eq(path.message_id))
+            .filter(messages::id.eq(msg_id))
             .filter(messages::channel_id.eq(&path.channel_id))
             .select(messages::id),
         &mut conn,
@@ -771,7 +804,7 @@ pub async fn list_reactions(
 
     let results: Vec<Reaction> = diesel_async::RunQueryDsl::load(
         reactions::table
-            .filter(reactions::message_id.eq(path.message_id))
+            .filter(reactions::message_id.eq(msg_id))
             .filter(reactions::emoji.eq(&path.emoji))
             .select(Reaction::as_select()),
         &mut conn,

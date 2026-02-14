@@ -29,7 +29,10 @@ export interface Reaction {
 /** Per-channel message state. */
 interface ChannelMessages {
   messages: Message[];
-  hasMore: boolean;
+  /** Has older messages above the current window */
+  hasOlder: boolean;
+  /** Has newer messages below the current window */
+  hasNewer: boolean;
   loading: boolean;
 }
 
@@ -46,7 +49,10 @@ interface MessagesState {
   reactions: Record<string, Reaction[]>;
 
   // Actions
-  fetchMessages: (channelId: string, before?: string) => Promise<void>;
+  fetchMessages: (
+    channelId: string,
+    opts?: { before?: string; after?: string },
+  ) => Promise<void>;
   sendMessage: (
     channelId: string,
     content: string,
@@ -101,14 +107,17 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
   // REST actions
   // ---------------------------------------------------------------------------
 
-  fetchMessages: async (channelId, before) => {
+  fetchMessages: async (channelId, opts) => {
+    const { before, after } = opts ?? {};
     const existing = get().byChannel[channelId];
-
-    // If we already fetched and there's no more history, skip
-    if (existing && !existing.hasMore && before !== undefined) return;
+    const isPaginating = before !== undefined || after !== undefined;
 
     // Skip re-fetching if we already have messages for this channel (initial load only)
-    if (!before && existing && existing.messages.length > 0) return;
+    if (!isPaginating && existing && existing.messages.length > 0) return;
+
+    // Skip if no more in requested direction
+    if (before !== undefined && existing && !existing.hasOlder) return;
+    if (after !== undefined && existing && !existing.hasNewer) return;
 
     // Mark loading
     set((state) => ({
@@ -116,7 +125,8 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
         ...state.byChannel,
         [channelId]: {
           messages: existing?.messages ?? [],
-          hasMore: existing?.hasMore ?? true,
+          hasOlder: existing?.hasOlder ?? true,
+          hasNewer: existing?.hasNewer ?? false,
           loading: true,
         },
       },
@@ -129,7 +139,11 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
         {
           params: {
             path: { channel_id: channelId },
-            query: { limit: 50, ...(before !== undefined ? { before } : {}) },
+            query: {
+              limit: 50,
+              ...(before !== undefined ? { before } : {}),
+              ...(after !== undefined ? { after } : {}),
+            },
           },
         },
       );
@@ -138,18 +152,37 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
 
       set((state) => {
         const prev = state.byChannel[channelId]?.messages ?? [];
+        const prevState = state.byChannel[channelId];
         // Sort messages oldest-first by id
         const fetched = [...data.data].sort((a, b) => a.id.localeCompare(b.id));
 
-        // Prepend older messages (before) or replace (initial load)
-        const merged = before !== undefined ? [...fetched, ...prev] : fetched;
+        let merged: Message[];
+        let hasOlder = prevState?.hasOlder ?? true;
+        let hasNewer = prevState?.hasNewer ?? false;
+
+        if (before !== undefined) {
+          // Prepend older messages
+          merged = [...fetched, ...prev];
+          hasOlder = data.has_more;
+        } else if (after !== undefined) {
+          // Append newer messages
+          merged = [...prev, ...fetched];
+          hasNewer = data.has_more;
+        } else {
+          // Initial load — latest messages
+          merged = fetched;
+          hasOlder = data.has_more;
+          // Initial load gets the latest, so no newer messages exist
+          hasNewer = false;
+        }
 
         return {
           byChannel: {
             ...state.byChannel,
             [channelId]: {
               messages: merged,
-              hasMore: data.has_more,
+              hasOlder,
+              hasNewer,
               loading: false,
             },
           },
@@ -161,7 +194,8 @@ export const useMessageStore = create<MessagesState>()((set, get) => ({
           ...state.byChannel,
           [channelId]: {
             messages: existing?.messages ?? [],
-            hasMore: existing?.hasMore ?? true,
+            hasOlder: existing?.hasOlder ?? true,
+            hasNewer: existing?.hasNewer ?? false,
             loading: false,
           },
         },

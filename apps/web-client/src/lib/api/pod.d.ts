@@ -625,11 +625,11 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Fetch messages before this ID */
-                before?: number;
+                before?: string;
                 /** @description Fetch messages after this ID */
-                after?: number;
+                after?: string;
                 /** @description Fetch messages around this ID */
-                around?: number;
+                around?: string;
                 /** @description Number of messages (1-100, default 50) */
                 limit?: number;
             };
@@ -733,7 +733,7 @@ export interface operations {
                 /** @description Channel ID */
                 channel_id: string;
                 /** @description Message ID */
-                message_id: number;
+                message_id: string;
             };
             cookie?: never;
         };
@@ -783,7 +783,7 @@ export interface operations {
                 /** @description Channel ID */
                 channel_id: string;
                 /** @description Message ID */
-                message_id: number;
+                message_id: string;
             };
             cookie?: never;
         };
@@ -848,7 +848,7 @@ export interface operations {
                 /** @description Channel ID */
                 channel_id: string;
                 /** @description Message ID */
-                message_id: number;
+                message_id: string;
                 /** @description Emoji */
                 emoji: string;
             };
@@ -884,7 +884,7 @@ export interface operations {
                 /** @description Channel ID */
                 channel_id: string;
                 /** @description Message ID */
-                message_id: number;
+                message_id: string;
                 /** @description Emoji */
                 emoji: string;
             };
@@ -938,7 +938,7 @@ export interface operations {
                 /** @description Channel ID */
                 channel_id: string;
                 /** @description Message ID */
-                message_id: number;
+                message_id: string;
                 /** @description Emoji */
                 emoji: string;
             };

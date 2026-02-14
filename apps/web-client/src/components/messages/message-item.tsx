@@ -136,16 +136,13 @@ export const MessageItem = memo(function MessageItem({
         </div>
 
         {/* Action buttons — CSS-only hover, no state re-renders */}
-        {isOwn && !pending && !editing && (
+        {!pending && !editing && (
           <MessageActions
-            onEdit={handleEditStart}
-            onDelete={handleDelete}
-          />
-        )}
-        {!isOwn && !pending && (
-          <ReactionButton
+            isOwn={isOwn}
             channelId={message.channel_id}
             messageId={message.id}
+            onEdit={handleEditStart}
+            onDelete={handleDelete}
           />
         )}
       </div>
@@ -155,7 +152,7 @@ export const MessageItem = memo(function MessageItem({
   return (
     <div
       className={cn(
-        "group relative mt-1 flex items-start gap-3 py-1 pr-4 hover:bg-accent/50",
+        "group relative flex items-start gap-3 pt-2 pb-1 pr-4 hover:bg-accent/50",
         pending && "opacity-50",
       )}
     >
@@ -202,14 +199,14 @@ export const MessageItem = memo(function MessageItem({
       </div>
 
       {/* Action buttons — CSS-only hover, no state re-renders */}
-      {isOwn && !pending && !editing && (
+      {!pending && !editing && (
         <MessageActions
+          isOwn={isOwn}
+          channelId={message.channel_id}
+          messageId={message.id}
           onEdit={handleEditStart}
           onDelete={handleDelete}
         />
-      )}
-      {!pending && (
-        <ReactionButton channelId={message.channel_id} messageId={message.id} />
       )}
     </div>
   );
@@ -348,54 +345,21 @@ function EditForm({
 }
 
 function MessageActions({
+  isOwn,
+  channelId: _channelId,
+  messageId: _messageId,
   onEdit,
   onDelete,
 }: {
+  isOwn: boolean;
+  channelId: string;
+  messageId: string;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="absolute -top-3 right-2 hidden rounded-md border border-border bg-background shadow-sm group-hover:flex">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={onEdit}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Edit</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-destructive hover:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Delete</TooltipContent>
-      </Tooltip>
-    </div>
-  );
-}
-
-function ReactionButton({
-  channelId: _channelId,
-  messageId: _messageId,
-}: {
-  channelId: string;
-  messageId: string;
-}) {
-  // TODO: implement full emoji picker popover
-  return (
-    <div className="absolute -top-3 right-2 hidden rounded-md border border-border bg-background shadow-sm group-hover:flex">
+      {/* TODO: implement full emoji picker popover */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="ghost" size="icon" className="size-7">
@@ -404,6 +368,36 @@ function ReactionButton({
         </TooltipTrigger>
         <TooltipContent>Add Reaction</TooltipContent>
       </Tooltip>
+      {isOwn && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={onEdit}
+              >
+                <Pencil className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-destructive hover:text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Delete</TooltipContent>
+          </Tooltip>
+        </>
+      )}
     </div>
   );
 }

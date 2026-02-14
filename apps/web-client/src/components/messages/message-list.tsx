@@ -1,28 +1,41 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-  useState,
-  useMemo,
-} from "react";
-import { useMessageStore } from "@/stores/messages";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
+import { ArrowDown } from "lucide-react";
+import { useMessageStore, type Message } from "@/stores/messages";
 import { MessageItem } from "./message-item";
-import { Skeleton } from "@/components/ui/skeleton";
 import { usePodStore } from "@/stores/pod";
+import { Button } from "@/components/ui/button";
 
-const EMPTY_MESSAGES: ReturnType<
-  typeof useMessageStore.getState
->["byChannel"][string]["messages"] = [];
+const EMPTY_MESSAGES: Message[] = [];
 
 interface MessageListProps {
   channelId: string;
 }
 
+interface ListItem {
+  key: string;
+  message: Message;
+  isOwn: boolean;
+  compact: boolean;
+  pending: boolean;
+}
+
+function isCompactMessage(
+  prev: { author_id: string; created_at: string } | undefined,
+  curr: { author_id: string; created_at: string },
+): boolean {
+  if (!prev) return false;
+  if (prev.author_id !== curr.author_id) return false;
+  const prevTime = new Date(prev.created_at).getTime();
+  const currTime = new Date(curr.created_at).getTime();
+  return currTime - prevTime < 5 * 60 * 1000;
+}
+
 export function MessageList({ channelId }: MessageListProps) {
   const channelData = useMessageStore((s) => s.byChannel[channelId]);
   const messages = channelData?.messages ?? EMPTY_MESSAGES;
-  const hasMore = channelData?.hasMore ?? true;
+  const hasOlder = channelData?.hasOlder ?? true;
+  const hasNewer = channelData?.hasNewer ?? false;
   const loading = channelData?.loading ?? false;
   const pending = useMessageStore((s) => s.pending);
   const pendingMessages = useMemo(
@@ -32,172 +45,217 @@ export function MessageList({ channelId }: MessageListProps) {
   const fetchMessages = useMessageStore((s) => s.fetchMessages);
   const currentUserId = usePodStore((s) => s.user?.id) ?? "";
 
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const prevMessageCountRef = useRef(0);
-  const hasInitialScrollRef = useRef(false);
+  const ref = useRef<VirtualizerHandle>(null);
+  const [shifting, setShifting] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const handleEditStart = useCallback((id: string) => setEditingMessageId(id), []);
+  const handleEditStart = useCallback(
+    (id: string) => setEditingMessageId(id),
+    [],
+  );
   const handleEditEnd = useCallback(() => setEditingMessageId(null), []);
 
-  // Reset scroll state on channel change
+  const isAtBottomRef = useRef(true);
+  const lastItemCountRef = useRef(0);
+  const fetchingOlderRef = useRef(false);
+  const fetchingNewerRef = useRef(false);
+  const hasInitialScrollRef = useRef(false);
+  const readyRef = useRef(false);
+
+  // Build flat list of all items (messages + pending)
+  const allItems = useMemo((): ListItem[] => {
+    const result: ListItem[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      result.push({
+        key: msg.id,
+        message: msg,
+        isOwn: msg.author_id === currentUserId,
+        compact: isCompactMessage(messages[i - 1], msg),
+        pending: false,
+      });
+    }
+
+    for (let i = 0; i < pendingMessages.length; i++) {
+      const pm = pendingMessages[i];
+      const prev =
+        i === 0 ? messages[messages.length - 1] : pendingMessages[i - 1];
+
+      result.push({
+        key: `pending-${pm.nonce}`,
+        message: {
+          id: `pending-${pm.nonce}`,
+          channel_id: pm.channel_id,
+          author_id: pm.author_id,
+          content: pm.content,
+          type: 0,
+          flags: 0,
+          reply_to: pm.reply_to,
+          edited_at: null,
+          pinned: false,
+          created_at: pm.created_at,
+        },
+        isOwn: true,
+        compact: isCompactMessage(prev, pm),
+        pending: true,
+      });
+    }
+
+    return result;
+  }, [messages, pendingMessages, currentUserId]);
+
+  // Reset on channel change
   useEffect(() => {
     hasInitialScrollRef.current = false;
-    prevMessageCountRef.current = 0;
+    lastItemCountRef.current = 0;
+    isAtBottomRef.current = true;
+    fetchingOlderRef.current = false;
+    fetchingNewerRef.current = false;
+    readyRef.current = false;
+    setShifting(false);
+    setIsAtBottom(true);
   }, [channelId]);
 
-  // Initial scroll — useLayoutEffect runs before paint so there's no visible flash
-  useLayoutEffect(() => {
+  // Initial scroll to bottom
+  useEffect(() => {
     if (hasInitialScrollRef.current) return;
-    if (messages.length === 0) return;
+    if (allItems.length === 0) return;
 
-    const el = scrollContainerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
+    ref.current?.scrollToIndex(allItems.length - 1, { align: "end" });
     hasInitialScrollRef.current = true;
-    prevMessageCountRef.current = messages.length + pendingMessages.length;
-  }, [messages.length, pendingMessages.length]);
+    lastItemCountRef.current = allItems.length;
+    requestAnimationFrame(() => {
+      readyRef.current = true;
+    });
+  }, [allItems.length]);
 
-  // Auto-scroll on new messages (only after initial scroll is done)
+  // Handle item count changes (pagination and new messages)
   useEffect(() => {
     if (!hasInitialScrollRef.current) return;
-    const newCount = messages.length + pendingMessages.length;
-    if (newCount > prevMessageCountRef.current && shouldAutoScroll) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (allItems.length <= lastItemCountRef.current) return;
+
+    // Older messages prepended — shift handles scroll restoration
+    if (fetchingOlderRef.current) {
+      fetchingOlderRef.current = false;
+      setShifting(false);
+      lastItemCountRef.current = allItems.length;
+      return;
     }
-    prevMessageCountRef.current = newCount;
-  }, [messages.length, pendingMessages.length, shouldAutoScroll]);
 
-  // Track scroll position to determine auto-scroll behavior
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShouldAutoScroll(distanceFromBottom < 100);
-
-    // Infinite scroll up — fetch more when near top
-    if (el.scrollTop < 100 && hasMore && !loading) {
-      const oldestMessage = messages[0];
-      if (oldestMessage) {
-        const prevHeight = el.scrollHeight;
-        fetchMessages(channelId, oldestMessage.id).then(() => {
-          // Preserve scroll position after prepending
-          requestAnimationFrame(() => {
-            const newHeight = el.scrollHeight;
-            el.scrollTop = newHeight - prevHeight;
-          });
-        });
-      }
+    // Newer messages appended via pagination
+    if (fetchingNewerRef.current) {
+      fetchingNewerRef.current = false;
+      lastItemCountRef.current = allItems.length;
+      return;
     }
-  }, [channelId, hasMore, loading, messages, fetchMessages]);
 
-  // Group consecutive messages by the same author (compact mode)
-  const isCompact = (index: number): boolean => {
-    if (index === 0) return false;
-    const prev = messages[index - 1];
-    const curr = messages[index];
-    if (!prev || !curr) return false;
-    if (prev.author_id !== curr.author_id) return false;
+    // New message from gateway/send — auto-scroll if at bottom or own send
+    const lastItem = allItems[allItems.length - 1];
+    lastItemCountRef.current = allItems.length;
+    if (isAtBottomRef.current || lastItem?.pending) {
+      ref.current?.scrollToIndex(allItems.length - 1, {
+        align: "end",
+        smooth: true,
+      });
+    }
+  }, [allItems]);
 
-    // Within 5 minutes
-    const prevTime = new Date(prev.created_at).getTime();
-    const currTime = new Date(curr.created_at).getTime();
-    return currTime - prevTime < 5 * 60 * 1000;
-  };
+  const scrollToBottom = useCallback(() => {
+    ref.current?.scrollToIndex(allItems.length - 1, {
+      align: "end",
+      smooth: true,
+    });
+  }, [allItems.length]);
 
   return (
-    <div
-      ref={scrollContainerRef}
-      className="styled-scrollbar flex flex-1 flex-col overflow-y-auto"
-      onScroll={handleScroll}
-    >
-      {/* Loading skeleton for older message pagination */}
-      {loading && messages.length > 0 && (
-        <div className="space-y-4 p-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-start gap-3">
-              <Skeleton className="size-10 shrink-0 rounded-full" />
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-64" />
-              </div>
+    <div className="relative flex flex-1 flex-col overflow-hidden">
+      <div className="styled-scrollbar flex flex-1 flex-col overflow-y-auto">
+        {allItems.length === 0 ? (
+          <div className="flex flex-1 items-end p-4">
+            <div>
+              <h3 className="text-lg font-semibold">
+                Welcome to this channel!
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                This is the beginning of the conversation.
+              </p>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && messages.length === 0 && pendingMessages.length === 0 && (
-        <div className="flex flex-1 items-end p-4">
-          <div>
-            <h3 className="text-lg font-semibold">Welcome to this channel!</h3>
-            <p className="text-sm text-muted-foreground">
-              This is the beginning of the conversation.
-            </p>
           </div>
-        </div>
-      )}
+        ) : (
+          <Virtualizer
+            ref={ref}
+            shift={shifting}
+            bufferSize={550}
+            onScroll={() => {
+              if (!readyRef.current) return;
+              if (!ref.current) return;
 
-      {/* Message list — mt-auto pushes messages to the bottom when content is short */}
-      <div className="mt-auto flex flex-col px-4 py-2">
-        {messages.map((msg, i) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            isOwn={msg.author_id === currentUserId}
-            compact={isCompact(i)}
-            editing={editingMessageId === msg.id}
-            onEditStart={handleEditStart}
-            onEditEnd={handleEditEnd}
-          />
-        ))}
+              const { scrollOffset, scrollSize, viewportSize } = ref.current;
+              const distanceFromBottom =
+                scrollSize - scrollOffset - viewportSize;
+              const atBottom = distanceFromBottom < 100;
+              isAtBottomRef.current = atBottom;
+              setIsAtBottom(atBottom);
 
-        {/* Pending messages (optimistic) */}
-        {pendingMessages.map((pm, i) => {
-          // Determine compact by checking the previous message (real or pending)
-          const prev =
-            i === 0
-              ? messages[messages.length - 1]
-              : {
-                  author_id: pendingMessages[i - 1].author_id,
-                  created_at: pendingMessages[i - 1].created_at,
-                };
+              // Fetch older messages when near top
+              if (
+                scrollOffset < 200 &&
+                hasOlder &&
+                !loading &&
+                !fetchingOlderRef.current
+              ) {
+                const oldestMessage = messages[0];
+                if (oldestMessage) {
+                  setShifting(true);
+                  fetchingOlderRef.current = true;
+                  fetchMessages(channelId, { before: oldestMessage.id });
+                }
+              }
 
-          const isPendingCompact = (() => {
-            if (!prev) return false;
-            if (prev.author_id !== pm.author_id) return false;
-            const prevTime = new Date(prev.created_at).getTime();
-            const currTime = new Date(pm.created_at).getTime();
-            return currTime - prevTime < 5 * 60 * 1000;
-          })();
-
-          return (
-            <MessageItem
-              key={`pending-${pm.nonce}`}
-              message={{
-                id: `pending-${pm.nonce}`,
-                channel_id: pm.channel_id,
-                author_id: pm.author_id,
-                content: pm.content,
-                type: 0,
-                flags: 0,
-                reply_to: pm.reply_to,
-                edited_at: null,
-                pinned: false,
-                created_at: pm.created_at,
-              }}
-              isOwn={true}
-              compact={isPendingCompact}
-              pending
-            />
-          );
-        })}
+              // Fetch newer messages when near bottom
+              if (
+                distanceFromBottom < 200 &&
+                hasNewer &&
+                !loading &&
+                !fetchingNewerRef.current
+              ) {
+                const newestMessage = messages[messages.length - 1];
+                if (newestMessage) {
+                  fetchingNewerRef.current = true;
+                  fetchMessages(channelId, { after: newestMessage.id });
+                }
+              }
+            }}
+          >
+            {allItems.map((item) => (
+              <MessageItem
+                key={item.key}
+                message={item.message}
+                isOwn={item.isOwn}
+                compact={item.compact}
+                pending={item.pending}
+                editing={editingMessageId === item.message.id}
+                onEditStart={handleEditStart}
+                onEditEnd={handleEditEnd}
+              />
+            ))}
+          </Virtualizer>
+        )}
       </div>
 
-      <div ref={bottomRef} />
+      {!isAtBottom && allItems.length > 0 && (
+        <div className="absolute inset-x-0 bottom-0 flex justify-center pb-2">
+          <Button
+            type="button"
+            onClick={scrollToBottom}
+            className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-md backdrop-blur transition-colors hover:text-foreground"
+          >
+            You are viewing older messages
+            <ArrowDown className="size-3.5" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

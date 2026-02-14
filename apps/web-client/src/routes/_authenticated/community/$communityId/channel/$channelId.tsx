@@ -80,7 +80,6 @@ function MessageListSkeleton({ messageCount }: { messageCount: number }) {
             </p>
           </div>
         </div>
-        <div className="mt-auto flex flex-col px-4 py-2" />
       </div>
     );
   }
