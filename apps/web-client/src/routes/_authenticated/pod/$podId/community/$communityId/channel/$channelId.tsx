@@ -5,6 +5,7 @@ import { useMessageStore, channelKey } from "@/stores/messages";
 import { ChannelProvider } from "@/components/messages/channel-context";
 import { MessageList } from "@/components/messages/message-list";
 import { MessageInput } from "@/components/messages/message-input";
+import { TypingIndicator } from "@/components/messages/typing-indicator";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -65,6 +66,7 @@ function ChannelView() {
           ) : (
             <MessageList />
           )}
+          <TypingIndicator />
           <MessageInput
             placeholder={channel ? `Message #${channel.name}` : "Type a message…"}
           />

@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "generate:types": "openapi-typescript ../../specs/hub-api.json -o src/lib/api/hub.d.ts && openapi-typescript ../../specs/pod-api.json -o src/lib/api/pod.d.ts"
   },
   "dependencies": {

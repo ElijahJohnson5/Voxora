@@ -1,10 +1,13 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { Value } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { useMessageStore } from "@/stores/messages";
+import { useTypingStore } from "@/stores/typing";
 import { useChannel } from "./channel-context";
 import { MessageKit } from "../editor/message-kit";
+
+const TYPING_THROTTLE_MS = 5_000;
 
 const EMPTY_VALUE: Value = [{ type: "p", children: [{ text: "" }] }];
 
@@ -71,6 +74,7 @@ export function MessageInput({
 }: MessageInputProps) {
   const { podId, channelId } = useChannel();
   const sendMessage = useMessageStore((s) => s.sendMessage);
+  const lastTypingSent = useRef(0);
 
   const editor = usePlateEditor({
     id: `message-input`,
@@ -85,6 +89,9 @@ export function MessageInput({
     const content = serializeContent(value);
     sendMessage(podId, channelId, content);
 
+    // Reset typing throttle so next keystroke sends immediately
+    lastTypingSent.current = 0;
+
     editor.tf.reset();
   }, [editor, podId, channelId, sendMessage]);
 
@@ -96,9 +103,16 @@ export function MessageInput({
       } else if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
         editor.tf.insertBreak();
+      } else {
+        // Send typing indicator (throttled to once per 5s)
+        const now = Date.now();
+        if (now - lastTypingSent.current >= TYPING_THROTTLE_MS) {
+          lastTypingSent.current = now;
+          useTypingStore.getState().sendTyping(podId, channelId);
+        }
       }
     },
-    [handleSend, editor],
+    [handleSend, editor, podId, channelId],
   );
 
   return (

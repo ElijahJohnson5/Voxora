@@ -52,7 +52,13 @@ export interface HeartbeatMessage {
   d: { seq: number };
 }
 
-export type ClientMessage = IdentifyMessage | HeartbeatMessage;
+export interface TypingMessage {
+  op: typeof Opcode.DISPATCH;
+  t: "TYPING";
+  d: { channel_id: string };
+}
+
+export type ClientMessage = IdentifyMessage | HeartbeatMessage | TypingMessage;
 
 // ---------------------------------------------------------------------------
 // Dispatch event names
@@ -72,6 +78,8 @@ export const DispatchEvent = {
   MEMBER_JOIN: "MEMBER_JOIN",
   MEMBER_LEAVE: "MEMBER_LEAVE",
   MEMBER_UPDATE: "MEMBER_UPDATE",
+  TYPING_START: "TYPING_START",
+  CHANNEL_PINS_UPDATE: "CHANNEL_PINS_UPDATE",
 } as const;
 
 export type DispatchEventName =
@@ -206,6 +214,21 @@ export interface MemberLeavePayload {
   user_id: string;
 }
 
+// --- Typing events ---
+
+export interface TypingStartPayload {
+  channel_id: string;
+  user_id: string;
+  username: string;
+  timestamp: string;
+}
+
+// --- Pin events ---
+
+export interface ChannelPinsUpdatePayload {
+  channel_id: string;
+}
+
 // ---------------------------------------------------------------------------
 // Payload type map (for typed dispatch handlers)
 // ---------------------------------------------------------------------------
@@ -224,4 +247,6 @@ export interface DispatchPayloadMap {
   MEMBER_JOIN: MemberPayload;
   MEMBER_LEAVE: MemberLeavePayload;
   MEMBER_UPDATE: MemberPayload;
+  TYPING_START: TypingStartPayload;
+  CHANNEL_PINS_UPDATE: ChannelPinsUpdatePayload;
 }

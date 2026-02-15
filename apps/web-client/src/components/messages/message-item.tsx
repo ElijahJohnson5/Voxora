@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { MessageKit } from "@/components/editor/message-kit";
-import { Pencil, Trash2, SmilePlus } from "lucide-react";
+import { Pencil, Trash2, SmilePlus, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePinStore } from "@/stores/pins";
 import { useChannel } from "./channel-context";
 import { MessageReactions } from "./reactions";
 import { RichTextContent } from "./rich-text-content";
@@ -111,6 +112,14 @@ export const MessageItem = memo(function MessageItem({
     onEditStart?.(message.id);
   }, [onEditStart, message.id]);
 
+  const handleTogglePin = useCallback(() => {
+    if (message.pinned) {
+      usePinStore.getState().unpinMessage(podId, message.channel_id, message.id);
+    } else {
+      usePinStore.getState().pinMessage(podId, message.channel_id, message.id);
+    }
+  }, [podId, message.channel_id, message.id, message.pinned]);
+
   if (compact) {
     return (
       <div
@@ -159,8 +168,10 @@ export const MessageItem = memo(function MessageItem({
             isOwn={isOwn}
             channelId={message.channel_id}
             messageId={message.id}
+            pinned={message.pinned}
             onEdit={handleEditStart}
             onDelete={handleDelete}
+            onTogglePin={handleTogglePin}
           />
         )}
       </div>
@@ -369,14 +380,18 @@ function MessageActions({
   isOwn,
   channelId: _channelId,
   messageId: _messageId,
+  pinned,
   onEdit,
   onDelete,
+  onTogglePin,
 }: {
   isOwn: boolean;
   channelId: string;
   messageId: string;
+  pinned: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onTogglePin: () => void;
 }) {
   return (
     <div className="absolute -top-3 right-2 hidden rounded-md border border-border bg-background shadow-sm group-hover:flex">
@@ -388,6 +403,23 @@ function MessageActions({
           </Button>
         </TooltipTrigger>
         <TooltipContent>Add Reaction</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={onTogglePin}
+          >
+            {pinned ? (
+              <PinOff className="size-3.5" />
+            ) : (
+              <Pin className="size-3.5" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{pinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
       {isOwn && (
         <>

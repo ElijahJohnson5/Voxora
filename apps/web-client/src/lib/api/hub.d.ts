@@ -54,6 +54,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pods/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /api/v1/pods/heartbeat` — Record a Pod heartbeat.
+         * @description Authenticated via the Pod's `client_secret` as a Bearer token.
+         *     The pod is identified by the token, so no path parameter is needed.
+         */
+        post: operations["heartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pods/register": {
         parameters: {
             query?: never;
@@ -88,7 +109,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/pods/{pod_id}/heartbeat": {
+    "/api/v1/turn/credentials": {
         parameters: {
             query?: never;
             header?: never;
@@ -98,12 +119,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * `POST /api/v1/pods/{pod_id}/heartbeat` — Record a Pod heartbeat.
-         * @description Authenticated via the Pod's `client_id`/`client_secret` pair sent as a
-         *     Bearer token (the `client_secret` value). For Phase 1 we look the pod up
-         *     by its id and verify the secret from the `Authorization` header.
+         * `POST /api/v1/turn/credentials` — Generate time-limited TURN credentials.
+         * @description Authenticated via a Pod's `client_secret` as Bearer token. Returns ICE server
+         *     configuration with coturn REST API credentials (HMAC-SHA1).
          */
-        post: operations["heartbeat"];
+        post: operations["turn_credentials"];
         delete?: never;
         options?: never;
         head?: never;
@@ -159,6 +179,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/@me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /api/v1/users/@me/preferences` — Return the current user's preferences. */
+        get: operations["get_preferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** `PATCH /api/v1/users/@me/preferences` — Update the current user's preferences. */
+        patch: operations["update_preferences"];
         trace?: never;
     };
     "/api/v1/users/{user_id}": {
@@ -319,6 +357,13 @@ export interface components {
             ok: boolean;
             recorded_at: string;
         };
+        IceServer: {
+            credential?: string | null;
+            /** Format: int64 */
+            ttl?: number | null;
+            urls: string[];
+            username?: string | null;
+        };
         /** @description A single JSON Web Key. */
         JwkKey: {
             crv: string;
@@ -342,8 +387,12 @@ export interface components {
             data: components["schemas"]["PodResponse"][];
             has_more: boolean;
         };
+        MyPodEntry: components["schemas"]["PodResponse"] & {
+            preferred: boolean;
+            relay: boolean;
+        };
         MyPodsResponse: {
-            data: components["schemas"]["PodResponse"][];
+            data: components["schemas"]["MyPodEntry"][];
         };
         /** @description OpenID Connect discovery document. */
         OpenIdConfiguration: {
@@ -398,6 +447,11 @@ export interface components {
             url: string;
             version?: string | null;
         };
+        PreferencesResponse: {
+            /** Format: int32 */
+            max_preferred_pods: number;
+            preferred_pods: string[];
+        };
         /** @description Public-facing user profile (excludes email, status, updated_at). */
         PublicUserResponse: {
             avatar_url?: string | null;
@@ -448,6 +502,12 @@ export interface components {
             refresh_token?: string | null;
             scope: string;
             token_type: string;
+        };
+        TurnCredentialsResponse: {
+            ice_servers: components["schemas"]["IceServer"][];
+        };
+        UpdatePreferencesRequest: {
+            preferred_pods: string[];
         };
         UpdateProfileRequest: {
             avatar_url?: string | null;
@@ -596,6 +656,39 @@ export interface operations {
             };
         };
     };
+    heartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Heartbeat recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatResponse"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
     register_pod: {
         parameters: {
             query?: never;
@@ -679,42 +772,26 @@ export interface operations {
             };
         };
     };
-    heartbeat: {
+    turn_credentials: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                /** @description Pod ID */
-                pod_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HeartbeatRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Heartbeat recorded */
+            /** @description ICE server credentials */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HeartbeatResponse"];
+                    "application/json": components["schemas"]["TurnCredentialsResponse"];
                 };
             };
             /** @description Invalid credentials */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorBody"];
-                };
-            };
-            /** @description Pod not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -853,6 +930,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyPodsResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User preferences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    update_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated preferences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesResponse"];
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
                 };
             };
             /** @description Unauthorized */

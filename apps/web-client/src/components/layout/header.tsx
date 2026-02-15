@@ -1,7 +1,8 @@
-import { Moon, Sun, Monitor } from "lucide-react";
+import { Moon, Sun, Monitor, Pin } from "lucide-react";
 import { useMatch } from "@tanstack/react-router";
 import { useTheme } from "@/lib/theme";
 import { useCommunityStore } from "@/stores/communities";
+import { usePinStore } from "@/stores/pins";
 import { useGatewayStatus } from "@/lib/gateway/useGatewayStatus";
 import {
   DropdownMenu,
@@ -10,9 +11,15 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { PinnedMessages } from "@/components/messages/pinned-messages";
 
 const themeOptions = [
   { value: "light" as const, icon: Sun, label: "Light" },
@@ -49,6 +56,11 @@ export function Header() {
     podId && communityId ? (channels[podId]?.[communityId] ?? []) : [];
   const activeChannel = channelList.find((c) => c.id === channelId);
 
+  const pinKey = podId && channelId ? `${podId}:${channelId}` : null;
+  const pinCount = usePinStore((s) =>
+    pinKey ? (s.byChannel[pinKey]?.length ?? 0) : 0,
+  );
+
   const current =
     themeOptions.find((o) => o.value === theme) ?? themeOptions[2];
   const Icon = current.icon;
@@ -72,6 +84,23 @@ export function Header() {
         )}
       </div>
       <div className="flex items-center gap-2">
+        {podId && channelId && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="relative flex items-center rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
+                <Pin className="size-4" />
+                {pinCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                    {pinCount}
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-0">
+              <PinnedMessages podId={podId} channelId={channelId} />
+            </PopoverContent>
+          </Popover>
+        )}
         {podId && gatewayStatus !== "connected" && (
           <Badge variant="outline" className="gap-1.5 text-xs font-normal">
             <span

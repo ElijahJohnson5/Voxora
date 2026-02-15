@@ -23,6 +23,8 @@ import {
   type CommunityMember,
 } from "@/stores/communities";
 import { useMessageStore } from "@/stores/messages";
+import { useTypingStore } from "@/stores/typing";
+import { usePinStore } from "@/stores/pins";
 
 /**
  * Route a dispatched event to the correct store update.
@@ -99,6 +101,25 @@ export function handleDispatch(
     case "MEMBER_UPDATE":
       handleMemberUpdate(podId, data as DispatchPayloadMap["MEMBER_UPDATE"]);
       break;
+
+    // --- Typing ---
+    case "TYPING_START":
+      useTypingStore
+        .getState()
+        .gatewayTypingStart(
+          podId,
+          data as DispatchPayloadMap["TYPING_START"],
+        );
+      break;
+
+    // --- Pins ---
+    case "CHANNEL_PINS_UPDATE": {
+      const pinsData = data as DispatchPayloadMap["CHANNEL_PINS_UPDATE"];
+      usePinStore
+        .getState()
+        .gatewayChannelPinsUpdate(podId, pinsData.channel_id);
+      break;
+    }
 
     default:
       console.warn("[gateway] Unhandled dispatch event:", event);

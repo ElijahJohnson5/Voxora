@@ -98,6 +98,15 @@ export class GatewayConnection {
   }
 
   /**
+   * Send a client message over the WebSocket.
+   */
+  send(msg: ClientMessage) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  /**
    * Gracefully close the connection. Does NOT trigger auto-reconnect.
    */
   disconnect() {
