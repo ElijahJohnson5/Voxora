@@ -183,12 +183,34 @@ pub async fn cleanup_test_pod(db: &DbPool, pod_id: &str) {
     .ok();
 }
 
-/// Clean up a test user and their sessions/bookmarks.
+/// Clean up user preferences.
+pub async fn cleanup_user_preferences(db: &DbPool, user_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        hub_api::db::schema::user_preferences::table
+            .filter(hub_api::db::schema::user_preferences::user_id.eq(user_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+}
+
+/// Clean up a test user and their sessions/bookmarks/preferences.
 pub async fn cleanup_test_user(db: &DbPool, user_id: &str) {
     use diesel::prelude::*;
     use diesel_async::RunQueryDsl;
 
     let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        hub_api::db::schema::user_preferences::table
+            .filter(hub_api::db::schema::user_preferences::user_id.eq(user_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
     diesel::delete(
         hub_api::db::schema::user_pod_bookmarks::table
             .filter(hub_api::db::schema::user_pod_bookmarks::user_id.eq(user_id)),

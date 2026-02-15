@@ -53,6 +53,8 @@ impl Modify for SecurityAddon {
         users::update_me,
         users::get_user,
         users::get_my_pods,
+        users::get_preferences,
+        users::update_preferences,
         // SIA
         sia::issue_sia,
         // Pods
@@ -77,7 +79,10 @@ impl Modify for SecurityAddon {
             health::HealthResponse,
             users::CreateUserRequest,
             users::UpdateProfileRequest,
+            users::MyPodEntry,
             users::MyPodsResponse,
+            users::PreferencesResponse,
+            users::UpdatePreferencesRequest,
             oidc::OpenIdConfiguration,
             oidc::JwksResponse,
             oidc::JwkKey,

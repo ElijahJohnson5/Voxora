@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{pods, user_pod_bookmarks, users};
+use crate::db::schema::{pods, user_pod_bookmarks, user_preferences, users};
 use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::models::pod::{Pod, PodResponse};
 use crate::models::user::{NewUser, PublicUserResponse, User, UserResponse};
@@ -29,6 +29,10 @@ pub fn router() -> Router<AppState> {
         .route("/users", post(create_user))
         .route("/users/@me", get(get_me).patch(update_me))
         .route("/users/@me/pods", get(get_my_pods))
+        .route(
+            "/users/@me/preferences",
+            get(get_preferences).patch(update_preferences),
+        )
         .route("/users/{user_id}", get(get_user))
 }
 
@@ -325,8 +329,16 @@ pub async fn get_user(
 // =========================================================================
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct MyPodEntry {
+    #[serde(flatten)]
+    pub pod: PodResponse,
+    pub preferred: bool,
+    pub relay: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MyPodsResponse {
-    pub data: Vec<PodResponse>,
+    pub data: Vec<MyPodEntry>,
 }
 
 /// `GET /api/v1/users/@me/pods` — List Pods the current user has bookmarked.
@@ -356,7 +368,162 @@ pub async fn get_my_pods(
         .await
         .map_err(ApiError::from)?;
 
-    let data: Vec<PodResponse> = bookmarked_pods.into_iter().map(PodResponse::from).collect();
+    // Load user's preferred pods
+    let preferred_pods: Vec<String> = user_preferences::table
+        .find(&auth.user_id)
+        .select(user_preferences::preferred_pods)
+        .first::<Vec<String>>(&mut conn)
+        .await
+        .optional()
+        .map_err(ApiError::from)?
+        .unwrap_or_default();
+
+    let data: Vec<MyPodEntry> = bookmarked_pods
+        .into_iter()
+        .map(|p| {
+            let preferred = preferred_pods.contains(&p.id);
+            MyPodEntry {
+                pod: PodResponse::from(p),
+                preferred,
+                relay: false, // No managed pods in Phase 2
+            }
+        })
+        .collect();
 
     Ok(Json(MyPodsResponse { data }))
+}
+
+// =========================================================================
+// GET /api/v1/users/@me/preferences — User preferences
+// =========================================================================
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PreferencesResponse {
+    pub preferred_pods: Vec<String>,
+    pub max_preferred_pods: i32,
+}
+
+/// `GET /api/v1/users/@me/preferences` — Return the current user's preferences.
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/@me/preferences",
+    tag = "Users",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, description = "User preferences", body = PreferencesResponse),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn get_preferences(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<PreferencesResponse>, ApiError> {
+    let mut conn = state.db.get().await?;
+
+    let row = user_preferences::table
+        .find(&auth.user_id)
+        .select(user_preferences::preferred_pods)
+        .first::<Vec<String>>(&mut conn)
+        .await
+        .optional()
+        .map_err(ApiError::from)?;
+
+    let preferred_pods = row.unwrap_or_default();
+
+    Ok(Json(PreferencesResponse {
+        preferred_pods,
+        max_preferred_pods: 10,
+    }))
+}
+
+// =========================================================================
+// PATCH /api/v1/users/@me/preferences — Update user preferences
+// =========================================================================
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdatePreferencesRequest {
+    pub preferred_pods: Vec<String>,
+}
+
+/// `PATCH /api/v1/users/@me/preferences` — Update the current user's preferences.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/@me/preferences",
+    tag = "Users",
+    security(("bearer" = [])),
+    request_body = UpdatePreferencesRequest,
+    responses(
+        (status = 200, description = "Updated preferences", body = PreferencesResponse),
+        (status = 400, description = "Validation error", body = ApiErrorBody),
+        (status = 401, description = "Unauthorized", body = ApiErrorBody),
+    ),
+)]
+pub async fn update_preferences(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(body): Json<UpdatePreferencesRequest>,
+) -> Result<Json<PreferencesResponse>, ApiError> {
+    // Validate max 10
+    if body.preferred_pods.len() > 10 {
+        return Err(ApiError::validation(vec![FieldError {
+            field: "preferred_pods".into(),
+            message: "Maximum of 10 preferred pods allowed".into(),
+        }]));
+    }
+
+    let mut conn = state.db.get().await?;
+
+    if !body.preferred_pods.is_empty() {
+        // Validate all pod IDs exist and are active
+        let active_pods: Vec<String> = pods::table
+            .filter(pods::id.eq_any(&body.preferred_pods))
+            .filter(pods::status.eq("active"))
+            .select(pods::id)
+            .load(&mut conn)
+            .await
+            .map_err(ApiError::from)?;
+
+        if active_pods.len() != body.preferred_pods.len() {
+            return Err(ApiError::bad_request(
+                "One or more pod IDs are invalid or inactive",
+            ));
+        }
+
+        // Validate user has bookmarks for all listed pods
+        let bookmarked: Vec<String> = user_pod_bookmarks::table
+            .filter(user_pod_bookmarks::user_id.eq(&auth.user_id))
+            .filter(user_pod_bookmarks::pod_id.eq_any(&body.preferred_pods))
+            .select(user_pod_bookmarks::pod_id)
+            .load(&mut conn)
+            .await
+            .map_err(ApiError::from)?;
+
+        if bookmarked.len() != body.preferred_pods.len() {
+            return Err(ApiError::bad_request(
+                "You must be a member of all preferred pods",
+            ));
+        }
+    }
+
+    // Upsert
+    diesel::insert_into(user_preferences::table)
+        .values((
+            user_preferences::user_id.eq(&auth.user_id),
+            user_preferences::preferred_pods.eq(&body.preferred_pods),
+            user_preferences::updated_at.eq(Utc::now()),
+        ))
+        .on_conflict(user_preferences::user_id)
+        .do_update()
+        .set((
+            user_preferences::preferred_pods.eq(&body.preferred_pods),
+            user_preferences::updated_at.eq(Utc::now()),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(PreferencesResponse {
+        preferred_pods: body.preferred_pods,
+        max_preferred_pods: 10,
+    }))
 }
