@@ -250,6 +250,102 @@ pub async fn cleanup_community(db: &pod_api::db::pool::DbPool, community_id: &st
     .ok();
 }
 
+/// Create a community and return (community_id, token).
+pub async fn setup_community(
+    server: &axum_test::TestServer,
+    keys: &TestSigningKeys,
+    config: &pod_api::config::Config,
+    user_id: &str,
+    username: &str,
+) -> (String, String) {
+    let token = login_test_user(server, keys, config, user_id, username).await;
+
+    let resp = server
+        .post("/api/v1/communities")
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&serde_json::json!({ "name": "Test Community" }))
+        .await;
+    resp.assert_status(axum::http::StatusCode::CREATED);
+    let community: serde_json::Value = resp.json();
+    let community_id = community["id"].as_str().unwrap().to_string();
+
+    (community_id, token)
+}
+
+/// Create a community and return (community_id, default_channel_id, token).
+pub async fn setup_community_and_channel(
+    server: &axum_test::TestServer,
+    keys: &TestSigningKeys,
+    config: &pod_api::config::Config,
+    user_id: &str,
+    username: &str,
+) -> (String, String, String) {
+    let (community_id, token) = setup_community(server, keys, config, user_id, username).await;
+
+    let channels_resp = server
+        .get(&format!("/api/v1/communities/{community_id}/channels"))
+        .await;
+    let channels: Vec<serde_json::Value> = channels_resp.json();
+    let channel_id = channels[0]["id"].as_str().unwrap().to_string();
+
+    (community_id, channel_id, token)
+}
+
+/// Create invite and have a user accept it, returning their token.
+pub async fn join_via_invite(
+    server: &axum_test::TestServer,
+    keys: &TestSigningKeys,
+    config: &pod_api::config::Config,
+    community_id: &str,
+    owner_token: &str,
+    joiner_id: &str,
+    joiner_username: &str,
+) -> String {
+    let resp = server
+        .post(&format!("/api/v1/communities/{community_id}/invites"))
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {owner_token}"))
+        .json(&serde_json::json!({}))
+        .await;
+    let code = resp.json::<serde_json::Value>()["code"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let joiner_token =
+        login_test_user(server, keys, config, joiner_id, joiner_username).await;
+
+    server
+        .post(&format!("/api/v1/invites/{code}/accept"))
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {joiner_token}"))
+        .await
+        .assert_status(axum::http::StatusCode::CREATED);
+
+    joiner_token
+}
+
+/// Create a community, get its default channel, send a message, return IDs + token.
+pub async fn setup_with_message(
+    server: &axum_test::TestServer,
+    keys: &TestSigningKeys,
+    config: &pod_api::config::Config,
+    user_id: &str,
+    username: &str,
+) -> (String, String, String, String) {
+    let (community_id, channel_id, token) =
+        setup_community_and_channel(server, keys, config, user_id, username).await;
+
+    let msg_resp = server
+        .post(&format!("/api/v1/channels/{channel_id}/messages"))
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&serde_json::json!({ "content": "Test message" }))
+        .await;
+    msg_resp.assert_status(axum::http::StatusCode::CREATED);
+    let msg: serde_json::Value = msg_resp.json();
+    let message_id = msg["id"].as_str().unwrap().to_string();
+
+    (community_id, channel_id, message_id, token)
+}
+
 /// Login a test user and return their access token (PAT).
 pub async fn login_test_user(
     server: &axum_test::TestServer,

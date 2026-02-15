@@ -3,17 +3,16 @@
 use axum::extract::{Path, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::OptionalExtension;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{audit_log, channels, messages};
+use crate::db::schema::{channels, messages};
 use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
-use crate::models::audit_log::NewAuditLog;
+use crate::models::audit_log;
 use crate::models::channel::Channel;
 use crate::models::message::Message;
 use crate::permissions;
@@ -137,21 +136,15 @@ pub async fn pin_message(
     )
     .await?;
 
-    // Insert audit log entry.
-    let log_id = voxora_common::id::prefixed_ulid("aud");
-    diesel_async::RunQueryDsl::execute(
-        diesel::insert_into(audit_log::table).values(NewAuditLog {
-            id: &log_id,
-            community_id: &channel.community_id,
-            actor_id: &user_id,
-            action: "message.pin",
-            target_type: Some("message"),
-            target_id: Some(&path.message_id),
-            changes: None,
-            reason: None,
-            created_at: Utc::now(),
-        }),
-        &mut conn,
+    audit_log::log(
+        &state.db,
+        &channel.community_id,
+        &user_id,
+        "message.pin",
+        Some("message"),
+        Some(&path.message_id),
+        None,
+        None,
     )
     .await?;
 
@@ -245,21 +238,15 @@ pub async fn unpin_message(
     )
     .await?;
 
-    // Insert audit log entry.
-    let log_id = voxora_common::id::prefixed_ulid("aud");
-    diesel_async::RunQueryDsl::execute(
-        diesel::insert_into(audit_log::table).values(NewAuditLog {
-            id: &log_id,
-            community_id: &channel.community_id,
-            actor_id: &user_id,
-            action: "message.unpin",
-            target_type: Some("message"),
-            target_id: Some(&path.message_id),
-            changes: None,
-            reason: None,
-            created_at: Utc::now(),
-        }),
-        &mut conn,
+    audit_log::log(
+        &state.db,
+        &channel.community_id,
+        &user_id,
+        "message.unpin",
+        Some("message"),
+        Some(&path.message_id),
+        None,
+        None,
     )
     .await?;
 

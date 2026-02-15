@@ -14,6 +14,7 @@ use utoipa::ToSchema;
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{bans, communities, community_members};
 use crate::error::{ApiError, ApiErrorBody};
+use crate::models::audit_log;
 use crate::models::ban::{Ban, NewBan};
 use crate::permissions;
 use crate::AppState;
@@ -144,6 +145,18 @@ pub async fn ban_member(
         })
         .await?;
 
+    audit_log::log(
+        &state.db,
+        &path.community_id,
+        &auth_user_id,
+        "member.ban",
+        Some("user"),
+        Some(&path.user_id),
+        None,
+        body.reason.as_deref(),
+    )
+    .await?;
+
     Ok(Json(ban))
 }
 
@@ -193,6 +206,18 @@ pub async fn unban_member(
     if deleted == 0 {
         return Err(ApiError::not_found("Ban not found"));
     }
+
+    audit_log::log(
+        &state.db,
+        &path.community_id,
+        &auth_user_id,
+        "member.unban",
+        Some("user"),
+        Some(&path.user_id),
+        None,
+        None,
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

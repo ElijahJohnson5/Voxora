@@ -1,3 +1,4 @@
+pub mod audit_log;
 pub mod auth;
 pub mod bans;
 pub mod channels;
@@ -29,7 +30,8 @@ pub fn router() -> Router<AppState> {
                 .merge(members::router())
                 .merge(roles::router())
                 .merge(bans::router())
-                .merge(pins::router()),
+                .merge(pins::router())
+                .merge(audit_log::router()),
         )
 }
 
@@ -98,6 +100,8 @@ impl Modify for SecurityAddon {
         pins::pin_message,
         pins::unpin_message,
         pins::list_pins,
+        // Audit Log
+        audit_log::list_audit_log,
     ),
     components(
         schemas(
@@ -137,6 +141,8 @@ impl Modify for SecurityAddon {
             invites::CreateInviteRequest,
             invites::InviteInfoResponse,
             bans::BanRequest,
+            audit_log::AuditLogResponse,
+            crate::models::audit_log::AuditLogEntry,
         )
     ),
     modifiers(&SecurityAddon),
@@ -152,6 +158,7 @@ impl Modify for SecurityAddon {
         (name = "Invites", description = "Invite management"),
         (name = "Bans", description = "Ban management"),
         (name = "Pins", description = "Message pinning"),
+        (name = "Audit Log", description = "Audit log"),
     )
 )]
 pub struct ApiDoc;

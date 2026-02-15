@@ -18,6 +18,7 @@ pub const BAN_MEMBERS: i64 = 1 << 8;
 pub const INVITE_MEMBERS: i64 = 1 << 9;
 pub const USE_REACTIONS: i64 = 1 << 16;
 pub const MENTION_EVERYONE: i64 = 1 << 19;
+pub const VIEW_AUDIT_LOG: i64 = 1 << 20;
 pub const ADMINISTRATOR: i64 = 1 << 31;
 
 pub const DEFAULT_EVERYONE_PERMISSIONS: i64 =

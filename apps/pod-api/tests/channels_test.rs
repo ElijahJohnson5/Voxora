@@ -4,24 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community and return (community_id, default_channel_id, token).
-async fn setup_community(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> String {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Channel Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    token
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/v1/communities/:community_id/channels
 // ---------------------------------------------------------------------------
@@ -32,18 +14,8 @@ async fn create_channel_returns_channel_with_correct_fields() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let token = setup_community(&server, &keys, &state.config, &user_id, "ch_creator").await;
-
-    // Get community id from list.
-    let list_resp = server
-        .get("/api/v1/communities")
-        .await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_creator").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/channels"))
@@ -66,7 +38,6 @@ async fn create_channel_returns_channel_with_correct_fields() {
     assert_eq!(body["position"], 0);
     assert_eq!(body["slowmode_seconds"], 0);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -77,15 +48,8 @@ async fn create_channel_requires_auth() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let _token = setup_community(&server, &keys, &state.config, &user_id, "ch_noauth").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, _token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_noauth").await;
 
     // No auth header.
     let resp = server
@@ -95,7 +59,6 @@ async fn create_channel_requires_auth() {
 
     resp.assert_status(StatusCode::UNAUTHORIZED);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -105,18 +68,9 @@ async fn create_channel_requires_manage_channels_permission() {
     let (app, state, keys) = common::test_app().await;
     let server = TestServer::new(app).unwrap();
 
-    // Owner creates community.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
-    let _owner_token =
-        setup_community(&server, &keys, &state.config, &owner_id, "ch_owner").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == owner_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, _owner_token) =
+        common::setup_community(&server, &keys, &state.config, &owner_id, "ch_owner").await;
 
     // Non-member tries to create channel.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -131,7 +85,6 @@ async fn create_channel_requires_manage_channels_permission() {
 
     resp.assert_status(StatusCode::FORBIDDEN);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &owner_id).await;
     common::cleanup_test_user(&state.db, &other_id).await;
@@ -143,15 +96,8 @@ async fn create_channel_validates_name_empty() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let token = setup_community(&server, &keys, &state.config, &user_id, "ch_val").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_val").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/channels"))
@@ -163,7 +109,6 @@ async fn create_channel_validates_name_empty() {
     let body: serde_json::Value = resp.json();
     assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -184,7 +129,6 @@ async fn create_channel_returns_404_for_nonexistent_community() {
 
     resp.assert_status(StatusCode::NOT_FOUND);
 
-    // Cleanup.
     common::cleanup_test_user(&state.db, &user_id).await;
 }
 
@@ -198,15 +142,8 @@ async fn list_channels_in_community_is_public() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let _token = setup_community(&server, &keys, &state.config, &user_id, "ch_lister").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, _token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_lister").await;
 
     // List without auth.
     let resp = server
@@ -219,7 +156,6 @@ async fn list_channels_in_community_is_public() {
     assert!(!body.is_empty());
     assert_eq!(body[0]["name"], "general");
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -234,22 +170,9 @@ async fn get_channel_by_id() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let _token = setup_community(&server, &keys, &state.config, &user_id, "ch_getter").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
-
-    // Get channel list to find a channel id.
-    let channels_resp = server
-        .get(&format!("/api/v1/communities/{community_id}/channels"))
-        .await;
-    let channels: Vec<serde_json::Value> = channels_resp.json();
-    let channel_id = channels[0]["id"].as_str().unwrap();
+    let (community_id, channel_id, _token) =
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "ch_getter")
+            .await;
 
     // Get channel by ID (public).
     let resp = server
@@ -261,7 +184,6 @@ async fn get_channel_by_id() {
     assert_eq!(body["id"], channel_id);
     assert_eq!(body["name"], "general");
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -285,15 +207,8 @@ async fn update_channel_by_owner_succeeds() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let token = setup_community(&server, &keys, &state.config, &user_id, "ch_updater").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_updater").await;
 
     // Create a channel to update.
     let create_resp = server
@@ -326,7 +241,6 @@ async fn update_channel_by_owner_succeeds() {
     assert_eq!(body["nsfw"], true);
     assert_eq!(body["slowmode_seconds"], 5);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -336,25 +250,10 @@ async fn update_channel_by_non_member_returns_403() {
     let (app, state, keys) = common::test_app().await;
     let server = TestServer::new(app).unwrap();
 
-    // Owner creates community.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
-    let _owner_token =
-        setup_community(&server, &keys, &state.config, &owner_id, "ch_upd_owner").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == owner_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
-
-    // Get a channel id.
-    let channels_resp = server
-        .get(&format!("/api/v1/communities/{community_id}/channels"))
-        .await;
-    let channels: Vec<serde_json::Value> = channels_resp.json();
-    let channel_id = channels[0]["id"].as_str().unwrap();
+    let (community_id, channel_id, _owner_token) =
+        common::setup_community_and_channel(&server, &keys, &state.config, &owner_id, "ch_upd_owner")
+            .await;
 
     // Non-member tries to update.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -368,7 +267,6 @@ async fn update_channel_by_non_member_returns_403() {
         .await;
     resp.assert_status(StatusCode::FORBIDDEN);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &owner_id).await;
     common::cleanup_test_user(&state.db, &other_id).await;
@@ -384,15 +282,8 @@ async fn delete_channel_by_owner_succeeds() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let token = setup_community(&server, &keys, &state.config, &user_id, "ch_deleter").await;
-
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community_id = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .unwrap();
+    let (community_id, token) =
+        common::setup_community(&server, &keys, &state.config, &user_id, "ch_deleter").await;
 
     // Create a non-default channel to delete.
     let create_resp = server
@@ -419,7 +310,6 @@ async fn delete_channel_by_owner_succeeds() {
         .await;
     get_resp.assert_status(StatusCode::NOT_FOUND);
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
@@ -430,20 +320,13 @@ async fn delete_default_channel_returns_400() {
     let server = TestServer::new(app).unwrap();
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
-    let token = setup_community(&server, &keys, &state.config, &user_id, "ch_del_def").await;
+    let (community_id, channel_id, token) =
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "ch_del_def")
+            .await;
 
-    let list_resp = server.get("/api/v1/communities").await;
-    let communities: Vec<serde_json::Value> = list_resp.json();
-    let community = communities
-        .iter()
-        .find(|c| c["owner_id"] == user_id)
-        .unwrap();
-    let community_id = community["id"].as_str().unwrap().to_string();
-    let default_channel_id = community["default_channel"].as_str().unwrap();
-
-    // Try to delete the default channel.
+    // The default channel is the one from setup_community_and_channel.
     let resp = server
-        .delete(&format!("/api/v1/channels/{default_channel_id}"))
+        .delete(&format!("/api/v1/channels/{channel_id}"))
         .add_header(AUTHORIZATION, format!("Bearer {token}"))
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
@@ -454,7 +337,6 @@ async fn delete_default_channel_returns_400() {
         .unwrap()
         .contains("default channel"));
 
-    // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }

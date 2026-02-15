@@ -14,6 +14,7 @@ use crate::db::schema::{communities, community_members, pod_users};
 use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
+use crate::models::audit_log;
 use crate::models::community_member::{CommunityMember, CommunityMemberRow};
 use crate::permissions;
 use crate::AppState;
@@ -234,6 +235,21 @@ pub async fn remove_member(
     )
     .await?;
 
+    // Only log audit entry when kicked by another user (not self-leave).
+    if path.user_id != auth_user_id {
+        audit_log::log(
+            &state.db,
+            &path.community_id,
+            &auth_user_id,
+            "member.kick",
+            Some("user"),
+            Some(&path.user_id),
+            None,
+            None,
+        )
+        .await?;
+    }
+
     state.broadcast.dispatch(BroadcastPayload {
         community_id: path.community_id,
         event_name: EventName::MEMBER_LEAVE.to_string(),
@@ -364,6 +380,23 @@ pub async fn update_member(
         username,
         avatar_url,
     };
+
+    // Log audit entry if roles changed.
+    if body.roles.is_some() && existing.roles != updated_roles {
+        audit_log::log(
+            &state.db,
+            &path.community_id,
+            &auth_user_id,
+            "member.role_update",
+            Some("user"),
+            Some(&path.user_id),
+            Some(serde_json::json!({
+                "roles": { "old": existing.roles, "new": updated_roles }
+            })),
+            None,
+        )
+        .await?;
+    }
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: path.community_id,

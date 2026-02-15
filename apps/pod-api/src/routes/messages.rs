@@ -15,6 +15,7 @@ use crate::db::schema::{channels, messages, reactions};
 use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
+use crate::models::audit_log;
 use crate::models::channel::Channel;
 use crate::models::message::{Message, NewMessage, UpdateMessage};
 use crate::models::reaction::{NewReaction, Reaction};
@@ -507,6 +508,9 @@ pub async fn delete_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
+    // Log audit entry if mod-delete (author != deleter).
+    let is_mod_delete = message.author_id != user_id;
+
     diesel_async::RunQueryDsl::execute(
         diesel::delete(
             messages::table
@@ -516,6 +520,20 @@ pub async fn delete_message(
         &mut conn,
     )
     .await?;
+
+    if is_mod_delete {
+        audit_log::log(
+            &state.db,
+            &channel_community_id,
+            &user_id,
+            "message.delete",
+            Some("message"),
+            Some(&path.message_id),
+            None,
+            None,
+        )
+        .await?;
+    }
 
     // Decrement channel message count.
     let _ = diesel_async::RunQueryDsl::execute(

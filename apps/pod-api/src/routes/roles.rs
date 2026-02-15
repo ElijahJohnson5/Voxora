@@ -13,6 +13,7 @@ use utoipa::ToSchema;
 use crate::auth::middleware::AuthUser;
 use crate::db::schema::{communities, community_members, roles};
 use crate::error::{ApiError, ApiErrorBody};
+use crate::models::audit_log;
 use crate::models::role::{NewRole, Role, UpdateRole};
 use crate::permissions;
 use crate::AppState;
@@ -181,6 +182,18 @@ pub async fn create_role(
     )
     .await?;
 
+    audit_log::log(
+        &state.db,
+        &community_id,
+        &user_id,
+        "role.create",
+        Some("role"),
+        Some(&role.id),
+        None,
+        None,
+    )
+    .await?;
+
     Ok((StatusCode::CREATED, Json(role)))
 }
 
@@ -314,6 +327,56 @@ pub async fn update_role(
     )
     .await?;
 
+    // Build changes JSON by comparing old (target) vs new (updated).
+    let mut changes = serde_json::Map::new();
+    if target.name != updated.name {
+        changes.insert(
+            "name".to_string(),
+            serde_json::json!({ "old": target.name, "new": updated.name }),
+        );
+    }
+    if target.permissions != updated.permissions {
+        changes.insert(
+            "permissions".to_string(),
+            serde_json::json!({ "old": target.permissions, "new": updated.permissions }),
+        );
+    }
+    if target.color != updated.color {
+        changes.insert(
+            "color".to_string(),
+            serde_json::json!({ "old": target.color, "new": updated.color }),
+        );
+    }
+    if target.position != updated.position {
+        changes.insert(
+            "position".to_string(),
+            serde_json::json!({ "old": target.position, "new": updated.position }),
+        );
+    }
+    if target.mentionable != updated.mentionable {
+        changes.insert(
+            "mentionable".to_string(),
+            serde_json::json!({ "old": target.mentionable, "new": updated.mentionable }),
+        );
+    }
+    let changes_val = if changes.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(changes))
+    };
+
+    audit_log::log(
+        &state.db,
+        &path.community_id,
+        &user_id,
+        "role.update",
+        Some("role"),
+        Some(&path.role_id),
+        changes_val,
+        None,
+    )
+    .await?;
+
     Ok(Json(updated))
 }
 
@@ -409,6 +472,18 @@ pub async fn delete_role(
     // Delete the role.
     diesel_async::RunQueryDsl::execute(diesel::delete(roles::table.find(&path.role_id)), &mut conn)
         .await?;
+
+    audit_log::log(
+        &state.db,
+        &path.community_id,
+        &user_id,
+        "role.delete",
+        Some("role"),
+        Some(&path.role_id),
+        None,
+        None,
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

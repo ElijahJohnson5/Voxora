@@ -4,36 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community and return (community_id, default_channel_id, token).
-async fn setup_community_and_channel(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    // Create community.
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Message Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    // Get default channel.
-    let channels_resp = server
-        .get(&format!("/api/v1/communities/{community_id}/channels"))
-        .await;
-    let channels: Vec<serde_json::Value> = channels_resp.json();
-    let channel_id = channels[0]["id"].as_str().unwrap().to_string();
-
-    (community_id, channel_id, token)
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/v1/channels/:channel_id/messages
 // ---------------------------------------------------------------------------
@@ -45,7 +15,7 @@ async fn send_message_returns_correct_fields() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_sender").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_sender").await;
 
     let resp = server
         .post(&format!("/api/v1/channels/{channel_id}/messages"))
@@ -80,7 +50,7 @@ async fn send_message_requires_auth() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, _token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_noauth").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_noauth").await;
 
     // No auth header.
     let resp = server
@@ -103,7 +73,7 @@ async fn send_message_requires_send_messages_permission() {
     // Owner creates community.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, _owner_token) =
-        setup_community_and_channel(&server, &keys, &state.config, &owner_id, "msg_owner").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &owner_id, "msg_owner").await;
 
     // Non-member tries to send.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -131,7 +101,7 @@ async fn send_message_validates_empty_content() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_empty").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_empty").await;
 
     let resp = server
         .post(&format!("/api/v1/channels/{channel_id}/messages"))
@@ -155,7 +125,7 @@ async fn send_message_validates_content_too_long() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_long").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_long").await;
 
     let long_content = "a".repeat(4001);
     let resp = server
@@ -180,7 +150,7 @@ async fn send_message_with_reply_to() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_reply").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_reply").await;
 
     // Send first message.
     let resp1 = server
@@ -243,7 +213,7 @@ async fn list_messages_in_chronological_order() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_list").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_list").await;
 
     // Send 3 messages.
     for i in 1..=3 {
@@ -282,7 +252,7 @@ async fn list_messages_with_before_cursor_and_has_more() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_cursor").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_cursor").await;
 
     // Send 5 messages and collect IDs.
     let mut msg_ids = Vec::new();
@@ -330,7 +300,7 @@ async fn edit_message_by_author_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_editor").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_editor").await;
 
     // Send a message.
     let send_resp = server
@@ -369,7 +339,7 @@ async fn edit_message_by_non_author_returns_403() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, owner_token) =
-        setup_community_and_channel(&server, &keys, &state.config, &owner_id, "msg_edit_owner")
+        common::setup_community_and_channel(&server, &keys, &state.config, &owner_id, "msg_edit_owner")
             .await;
 
     // Owner sends a message.
@@ -414,7 +384,7 @@ async fn delete_message_by_author_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, token) =
-        setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_deleter").await;
+        common::setup_community_and_channel(&server, &keys, &state.config, &user_id, "msg_deleter").await;
 
     // Send a message.
     let send_resp = server

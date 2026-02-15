@@ -15,6 +15,7 @@ use crate::db::schema::{channels, communities};
 use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
+use crate::models::audit_log;
 use crate::models::channel::{Channel, NewChannel, UpdateChannel};
 use crate::permissions;
 use crate::AppState;
@@ -128,6 +129,18 @@ pub async fn create_channel(
             })
             .returning(Channel::as_returning()),
         &mut conn,
+    )
+    .await?;
+
+    audit_log::log(
+        &state.db,
+        &community_id,
+        &user_id,
+        "channel.create",
+        Some("channel"),
+        Some(&channel.id),
+        None,
+        None,
     )
     .await?;
 
@@ -309,6 +322,56 @@ pub async fn update_channel(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
+    // Build changes JSON by comparing old vs updated values.
+    let mut changes = serde_json::Map::new();
+    if channel.name != updated.name {
+        changes.insert(
+            "name".to_string(),
+            serde_json::json!({ "old": channel.name, "new": updated.name }),
+        );
+    }
+    if channel.topic != updated.topic {
+        changes.insert(
+            "topic".to_string(),
+            serde_json::json!({ "old": channel.topic, "new": updated.topic }),
+        );
+    }
+    if channel.position != updated.position {
+        changes.insert(
+            "position".to_string(),
+            serde_json::json!({ "old": channel.position, "new": updated.position }),
+        );
+    }
+    if channel.nsfw != updated.nsfw {
+        changes.insert(
+            "nsfw".to_string(),
+            serde_json::json!({ "old": channel.nsfw, "new": updated.nsfw }),
+        );
+    }
+    if channel.slowmode_seconds != updated.slowmode_seconds {
+        changes.insert(
+            "slowmode_seconds".to_string(),
+            serde_json::json!({ "old": channel.slowmode_seconds, "new": updated.slowmode_seconds }),
+        );
+    }
+    let changes_val = if changes.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(changes))
+    };
+
+    audit_log::log(
+        &state.db,
+        &channel.community_id,
+        &user_id,
+        "channel.update",
+        Some("channel"),
+        Some(&id),
+        changes_val,
+        None,
+    )
+    .await?;
+
     state.broadcast.dispatch(BroadcastPayload {
         community_id: channel.community_id.clone(),
         event_name: EventName::CHANNEL_UPDATE.to_string(),
@@ -377,6 +440,18 @@ pub async fn delete_channel(
 
     diesel_async::RunQueryDsl::execute(diesel::delete(channels::table.find(&id)), &mut conn)
         .await?;
+
+    audit_log::log(
+        &state.db,
+        &channel.community_id,
+        &user_id,
+        "channel.delete",
+        Some("channel"),
+        Some(&id),
+        None,
+        None,
+    )
+    .await?;
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: channel.community_id,

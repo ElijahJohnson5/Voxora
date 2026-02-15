@@ -4,63 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community and return (community_id, token).
-async fn setup_community(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Member Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    (community_id, token)
-}
-
-/// Helper: create invite and have a user accept it, returning their token.
-async fn join_via_invite(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    community_id: &str,
-    owner_token: &str,
-    joiner_id: &str,
-    joiner_username: &str,
-) -> String {
-    // Create invite.
-    let resp = server
-        .post(&format!("/api/v1/communities/{community_id}/invites"))
-        .add_header(AUTHORIZATION, format!("Bearer {owner_token}"))
-        .json(&serde_json::json!({}))
-        .await;
-    let code = resp.json::<serde_json::Value>()["code"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    // Login joiner.
-    let joiner_token =
-        common::login_test_user(server, keys, config, joiner_id, joiner_username).await;
-
-    // Accept invite.
-    server
-        .post(&format!("/api/v1/invites/{code}/accept"))
-        .add_header(AUTHORIZATION, format!("Bearer {joiner_token}"))
-        .await
-        .assert_status(StatusCode::CREATED);
-
-    joiner_token
-}
-
 // ---------------------------------------------------------------------------
 // GET /api/v1/communities/:community_id/members
 // ---------------------------------------------------------------------------
@@ -72,7 +15,7 @@ async fn list_members_is_public() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, _token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_list").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_list").await;
 
     // No auth header — should still work.
     let resp = server
@@ -100,11 +43,11 @@ async fn leave_self_succeeds() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_leave_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_leave_owner").await;
 
     // Add a member via invite.
     let member_id = voxora_common::id::prefixed_ulid("usr");
-    let member_token = join_via_invite(
+    let member_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,
@@ -144,11 +87,11 @@ async fn kick_member_requires_kick_members_permission() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_kick_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_kick_owner").await;
 
     // Add two members via invite.
     let member1_id = voxora_common::id::prefixed_ulid("usr");
-    let member1_token = join_via_invite(
+    let member1_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,
@@ -160,7 +103,7 @@ async fn kick_member_requires_kick_members_permission() {
     .await;
 
     let member2_id = voxora_common::id::prefixed_ulid("usr");
-    let _member2_token = join_via_invite(
+    let _member2_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,
@@ -194,7 +137,7 @@ async fn owner_cannot_leave_or_be_kicked() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_owner_leave").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_owner_leave").await;
 
     // Owner tries to leave themselves.
     let resp = server
@@ -221,11 +164,11 @@ async fn update_own_nickname_succeeds() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_nick_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_nick_owner").await;
 
     // Add a member via invite.
     let member_id = voxora_common::id::prefixed_ulid("usr");
-    let member_token = join_via_invite(
+    let member_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,
@@ -261,11 +204,11 @@ async fn update_own_roles_returns_403() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "mem_roles_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "mem_roles_owner").await;
 
     // Add a member via invite.
     let member_id = voxora_common::id::prefixed_ulid("usr");
-    let member_token = join_via_invite(
+    let member_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,

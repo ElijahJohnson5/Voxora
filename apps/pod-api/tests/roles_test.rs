@@ -4,60 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community and return (community_id, token).
-async fn setup_community(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Role Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    (community_id, token)
-}
-
-/// Helper: create invite and have a user accept it, returning their token.
-async fn join_via_invite(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    community_id: &str,
-    owner_token: &str,
-    joiner_id: &str,
-    joiner_username: &str,
-) -> String {
-    let resp = server
-        .post(&format!("/api/v1/communities/{community_id}/invites"))
-        .add_header(AUTHORIZATION, format!("Bearer {owner_token}"))
-        .json(&serde_json::json!({}))
-        .await;
-    let code = resp.json::<serde_json::Value>()["code"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let joiner_token =
-        common::login_test_user(server, keys, config, joiner_id, joiner_username).await;
-
-    server
-        .post(&format!("/api/v1/invites/{code}/accept"))
-        .add_header(AUTHORIZATION, format!("Bearer {joiner_token}"))
-        .await
-        .assert_status(StatusCode::CREATED);
-
-    joiner_token
-}
-
 // ---------------------------------------------------------------------------
 // GET /api/v1/communities/:community_id/roles
 // ---------------------------------------------------------------------------
@@ -69,7 +15,7 @@ async fn list_roles_is_public() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, _token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_list").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_list").await;
 
     // No auth header -- should still work.
     let resp = server
@@ -97,7 +43,7 @@ async fn create_role_succeeds() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_create").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_create").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/roles"))
@@ -129,7 +75,7 @@ async fn create_role_requires_manage_roles() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, _owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_perm_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_perm_owner").await;
 
     // Non-member tries to create role.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -160,7 +106,7 @@ async fn update_role_succeeds() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_update").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_update").await;
 
     // Create a role first.
     let create_resp = server
@@ -199,7 +145,7 @@ async fn update_everyone_name_is_prevented() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_everyone").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_everyone").await;
 
     // Get @everyone role ID.
     let roles_resp = server
@@ -240,7 +186,7 @@ async fn delete_role_succeeds() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_delete").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_delete").await;
 
     // Create a role.
     let create_resp = server
@@ -282,7 +228,7 @@ async fn delete_everyone_is_prevented() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_del_ev").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_del_ev").await;
 
     // Get @everyone role ID.
     let roles_resp = server
@@ -318,7 +264,7 @@ async fn delete_role_cleans_up_member_role_arrays() {
 
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "role_cleanup_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "role_cleanup_owner").await;
 
     // Create a role.
     let create_resp = server
@@ -334,7 +280,7 @@ async fn delete_role_cleans_up_member_role_arrays() {
 
     // Add a member and assign the role.
     let member_id = voxora_common::id::prefixed_ulid("usr");
-    let _member_token = join_via_invite(
+    let _member_token = common::join_via_invite(
         &server,
         &keys,
         &state.config,

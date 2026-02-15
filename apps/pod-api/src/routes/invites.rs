@@ -19,6 +19,7 @@ use crate::db::schema::{bans, communities, community_members, invites, pod_users
 use crate::error::{ApiError, ApiErrorBody};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
+use crate::models::audit_log;
 use crate::models::community_member::{CommunityMember, CommunityMemberRow, NewCommunityMember};
 use crate::models::invite::{Invite, NewInvite};
 use crate::permissions;
@@ -125,6 +126,18 @@ pub async fn create_invite(
             })
             .returning(Invite::as_returning()),
         &mut conn,
+    )
+    .await?;
+
+    audit_log::log(
+        &state.db,
+        &community_id,
+        &user_id,
+        "invite.create",
+        Some("invite"),
+        Some(&invite.code),
+        None,
+        None,
     )
     .await?;
 
@@ -235,6 +248,18 @@ pub async fn delete_invite(
     if deleted == 0 {
         return Err(ApiError::not_found("Invite not found"));
     }
+
+    audit_log::log(
+        &state.db,
+        &path.community_id,
+        &user_id,
+        "invite.delete",
+        Some("invite"),
+        Some(&path.code),
+        None,
+        None,
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

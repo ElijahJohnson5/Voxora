@@ -4,46 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community, get its default channel, send a message, return IDs + token.
-async fn setup_with_message(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String, String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    // Create community.
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Pin Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    // Get default channel.
-    let channels_resp = server
-        .get(&format!("/api/v1/communities/{community_id}/channels"))
-        .await;
-    let channels: Vec<serde_json::Value> = channels_resp.json();
-    let channel_id = channels[0]["id"].as_str().unwrap().to_string();
-
-    // Send a message.
-    let msg_resp = server
-        .post(&format!("/api/v1/channels/{channel_id}/messages"))
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "content": "Pin me!" }))
-        .await;
-    msg_resp.assert_status(StatusCode::CREATED);
-    let msg: serde_json::Value = msg_resp.json();
-    let message_id = msg["id"].as_str().unwrap().to_string();
-
-    (community_id, channel_id, message_id, token)
-}
-
 /// Helper: send a message in a channel, return message ID as string.
 async fn send_message(
     server: &TestServer,
@@ -72,7 +32,7 @@ async fn pin_message_success() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "pin_ok").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "pin_ok").await;
 
     let resp = server
         .put(&format!(
@@ -97,7 +57,7 @@ async fn pin_message_requires_auth() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, _token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "pin_noauth").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "pin_noauth").await;
 
     // No auth header.
     let resp = server
@@ -120,7 +80,7 @@ async fn pin_message_requires_manage_messages_permission() {
     // Owner creates community + message.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, _owner_token) =
-        setup_with_message(&server, &keys, &state.config, &owner_id, "pin_owner").await;
+        common::setup_with_message(&server, &keys, &state.config, &owner_id, "pin_owner").await;
 
     // Non-member tries to pin.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -186,7 +146,7 @@ async fn pin_message_wrong_channel() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, _channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "pin_wrongch").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "pin_wrongch").await;
 
     // Create a second channel.
     let ch_resp = server
@@ -274,7 +234,7 @@ async fn pin_message_idempotent() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "pin_idem").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "pin_idem").await;
 
     let url = format!("/api/v1/channels/{channel_id}/pins/{message_id}");
 
@@ -312,7 +272,7 @@ async fn unpin_message_success() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "unpin_ok").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "unpin_ok").await;
 
     let url = format!("/api/v1/channels/{channel_id}/pins/{message_id}");
 
@@ -344,7 +304,7 @@ async fn unpin_message_requires_auth() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, _token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "unpin_noauth").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "unpin_noauth").await;
 
     // No auth header.
     let resp = server
@@ -367,7 +327,7 @@ async fn unpin_message_requires_manage_messages_permission() {
     // Owner creates community + message + pins it.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, owner_token) =
-        setup_with_message(&server, &keys, &state.config, &owner_id, "unpin_owner").await;
+        common::setup_with_message(&server, &keys, &state.config, &owner_id, "unpin_owner").await;
 
     // Pin the message.
     server
@@ -404,7 +364,7 @@ async fn unpin_message_not_pinned() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "unpin_notpin").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "unpin_notpin").await;
 
     // Try to unpin a message that is not pinned.
     let resp = server

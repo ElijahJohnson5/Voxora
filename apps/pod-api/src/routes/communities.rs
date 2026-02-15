@@ -17,6 +17,7 @@ use crate::db::schema::{channels, communities, community_members, roles};
 use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
+use crate::models::audit_log;
 use crate::models::channel::{Channel, NewChannel};
 use crate::models::community::{Community, CommunityResponse, NewCommunity, UpdateCommunity};
 use crate::models::community_member::NewCommunityMember;
@@ -322,14 +323,25 @@ pub async fn update_community(
         }
     }
 
+    let mut conn = state.db.get().await?;
+
+    // Fetch existing community for changes diff.
+    let old: Community = diesel_async::RunQueryDsl::get_result(
+        communities::table
+            .find(&id)
+            .select(Community::as_select()),
+        &mut conn,
+    )
+    .await
+    .optional()?
+    .ok_or_else(|| ApiError::not_found("Community not found"))?;
+
     let changeset = UpdateCommunity {
         name: body.name.map(|n| n.trim().to_string()),
         description: body.description,
         icon_url: body.icon_url,
         updated_at: Utc::now(),
     };
-
-    let mut conn = state.db.get().await?;
 
     let community: Community = diesel_async::RunQueryDsl::get_result(
         diesel::update(communities::table.find(&id))
@@ -340,6 +352,44 @@ pub async fn update_community(
     .await
     .optional()?
     .ok_or_else(|| ApiError::not_found("Community not found"))?;
+
+    // Build changes JSON.
+    let mut changes = serde_json::Map::new();
+    if old.name != community.name {
+        changes.insert(
+            "name".to_string(),
+            serde_json::json!({ "old": old.name, "new": community.name }),
+        );
+    }
+    if old.description != community.description {
+        changes.insert(
+            "description".to_string(),
+            serde_json::json!({ "old": old.description, "new": community.description }),
+        );
+    }
+    if old.icon_url != community.icon_url {
+        changes.insert(
+            "icon_url".to_string(),
+            serde_json::json!({ "old": old.icon_url, "new": community.icon_url }),
+        );
+    }
+    let changes_val = if changes.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(changes))
+    };
+
+    audit_log::log(
+        &state.db,
+        &id,
+        &user_id,
+        "community.update",
+        Some("community"),
+        Some(&id),
+        changes_val,
+        None,
+    )
+    .await?;
 
     state.broadcast.dispatch(BroadcastPayload {
         community_id: id,

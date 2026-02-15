@@ -4,46 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community, get channel, send a message, return IDs + token.
-async fn setup_with_message(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String, String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    // Create community.
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Reaction Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    // Get default channel.
-    let channels_resp = server
-        .get(&format!("/api/v1/communities/{community_id}/channels"))
-        .await;
-    let channels: Vec<serde_json::Value> = channels_resp.json();
-    let channel_id = channels[0]["id"].as_str().unwrap().to_string();
-
-    // Send a message.
-    let msg_resp = server
-        .post(&format!("/api/v1/channels/{channel_id}/messages"))
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "content": "React to this!" }))
-        .await;
-    msg_resp.assert_status(StatusCode::CREATED);
-    let msg: serde_json::Value = msg_resp.json();
-    let message_id = msg["id"].as_str().unwrap().to_string();
-
-    (community_id, channel_id, message_id, token)
-}
-
 // ---------------------------------------------------------------------------
 // PUT /api/v1/channels/:channel_id/messages/:message_id/reactions/:emoji
 // ---------------------------------------------------------------------------
@@ -55,7 +15,7 @@ async fn add_reaction_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_add").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_add").await;
 
     let resp = server
         .put(&format!(
@@ -82,7 +42,7 @@ async fn add_reaction_requires_auth() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, _token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_noauth").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_noauth").await;
 
     // No auth header.
     let resp = server
@@ -106,7 +66,7 @@ async fn add_reaction_requires_use_reactions_permission() {
     // Owner creates community + message.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, _owner_token) =
-        setup_with_message(&server, &keys, &state.config, &owner_id, "rxn_owner").await;
+        common::setup_with_message(&server, &keys, &state.config, &owner_id, "rxn_owner").await;
 
     // Non-member tries to react.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -174,7 +134,7 @@ async fn add_duplicate_reaction_is_idempotent() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_dup").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_dup").await;
 
     let url = format!(
         "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/%F0%9F%91%8D"
@@ -210,7 +170,7 @@ async fn add_reaction_enforces_max_20_unique_emoji() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_max").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_max").await;
 
     // Add 20 unique emoji.
     let emojis: Vec<String> = (0..20).map(|i| format!("e{i}")).collect();
@@ -258,7 +218,7 @@ async fn remove_reaction_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_rm").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_rm").await;
 
     let url = format!(
         "/api/v1/channels/{channel_id}/messages/{message_id}/reactions/%F0%9F%91%8D"
@@ -295,7 +255,7 @@ async fn remove_nonexistent_reaction_returns_204() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, channel_id, message_id, token) =
-        setup_with_message(&server, &keys, &state.config, &user_id, "rxn_rm_noop").await;
+        common::setup_with_message(&server, &keys, &state.config, &user_id, "rxn_rm_noop").await;
 
     // Remove a reaction that was never added.
     let resp = server

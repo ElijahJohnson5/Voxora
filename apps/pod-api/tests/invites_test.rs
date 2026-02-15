@@ -4,28 +4,6 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 
-/// Helper: create a community and return (community_id, token).
-async fn setup_community(
-    server: &TestServer,
-    keys: &common::TestSigningKeys,
-    config: &pod_api::config::Config,
-    user_id: &str,
-    username: &str,
-) -> (String, String) {
-    let token = common::login_test_user(server, keys, config, user_id, username).await;
-
-    let resp = server
-        .post("/api/v1/communities")
-        .add_header(AUTHORIZATION, format!("Bearer {token}"))
-        .json(&serde_json::json!({ "name": "Invite Test Community" }))
-        .await;
-    resp.assert_status(StatusCode::CREATED);
-    let community: serde_json::Value = resp.json();
-    let community_id = community["id"].as_str().unwrap().to_string();
-
-    (community_id, token)
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/v1/communities/:community_id/invites
 // ---------------------------------------------------------------------------
@@ -37,7 +15,7 @@ async fn create_invite_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &user_id, "inv_create").await;
+        common::setup_community(&server, &keys, &state.config, &user_id, "inv_create").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/invites"))
@@ -65,7 +43,7 @@ async fn create_invite_with_max_uses_and_max_age() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &user_id, "inv_opts").await;
+        common::setup_community(&server, &keys, &state.config, &user_id, "inv_opts").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/invites"))
@@ -91,7 +69,7 @@ async fn create_invite_requires_invite_members_permission() {
     // Owner creates community.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, _owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "inv_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "inv_owner").await;
 
     // Non-member tries to create invite.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -123,7 +101,7 @@ async fn list_invites_requires_manage_community() {
     // Owner creates community + invite.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "inv_list_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "inv_list_owner").await;
 
     // Create an invite so there's something to list.
     server
@@ -181,7 +159,7 @@ async fn delete_invite_succeeds() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &user_id, "inv_del").await;
+        common::setup_community(&server, &keys, &state.config, &user_id, "inv_del").await;
 
     // Create invite.
     let resp = server
@@ -216,7 +194,7 @@ async fn delete_nonexistent_invite_returns_404() {
 
     let user_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, token) =
-        setup_community(&server, &keys, &state.config, &user_id, "inv_del404").await;
+        common::setup_community(&server, &keys, &state.config, &user_id, "inv_del404").await;
 
     let resp = server
         .delete(&format!(
@@ -243,7 +221,7 @@ async fn accept_invite_succeeds() {
     // Owner creates community + invite.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "inv_acc_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "inv_acc_owner").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/invites"))
@@ -293,7 +271,7 @@ async fn accept_invite_fails_when_max_uses_exceeded() {
     // Owner creates community + invite with max_uses=1.
     let owner_id = voxora_common::id::prefixed_ulid("usr");
     let (community_id, owner_token) =
-        setup_community(&server, &keys, &state.config, &owner_id, "inv_max_owner").await;
+        common::setup_community(&server, &keys, &state.config, &owner_id, "inv_max_owner").await;
 
     let resp = server
         .post(&format!("/api/v1/communities/{community_id}/invites"))
