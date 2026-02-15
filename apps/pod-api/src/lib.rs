@@ -14,6 +14,7 @@ use config::Config;
 use db::kv::KeyValueStore;
 use db::pool::DbPool;
 use gateway::fanout::GatewayBroadcast;
+use gateway::registry::SessionRegistry;
 use voxora_common::SnowflakeGenerator;
 
 /// Shared application state available to all route handlers.
@@ -25,4 +26,5 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub snowflake: Arc<SnowflakeGenerator>,
     pub broadcast: Arc<GatewayBroadcast>,
+    pub sessions: Arc<SessionRegistry>,
 }

@@ -29,12 +29,12 @@
 
 Phase 1 delivered the core platform:
 
-| Component | What exists |
-| --------- | ----------- |
-| Hub API | OIDC provider (auth code + PKCE), user registration, SIA issuance, JWKS, pod registry, user profiles, bookmarks |
-| Pod API | SIA validation, community/channel/message CRUD, reactions, basic RBAC (admin/mod/member), invites, WebSocket Gateway (core events), bans |
-| Web Client | OIDC login, multi-pod connections, community/channel sidebar, real-time messaging (Plate rich text), reactions, settings, Pod Browser |
-| Shared | `voxora-common` (ULID IDs, Snowflake generator, error types), OpenAPI specs |
+| Component  | What exists                                                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Hub API    | OIDC provider (auth code + PKCE), user registration, SIA issuance, JWKS, pod registry, user profiles, bookmarks                          |
+| Pod API    | SIA validation, community/channel/message CRUD, reactions, basic RBAC (admin/mod/member), invites, WebSocket Gateway (core events), bans |
+| Web Client | OIDC login, multi-pod connections, community/channel sidebar, real-time messaging (Plate rich text), reactions, settings, Pod Browser    |
+| Shared     | `voxora-common` (ULID IDs, Snowflake generator, error types), OpenAPI specs                                                              |
 
 **What Phase 1 does NOT have:** voice/video, file uploads, threads, pins, typing indicators, presence, notification relay, MFA, pod verification, desktop client, advanced RBAC (channel overrides), Gateway resume/replay.
 
@@ -130,15 +130,16 @@ Phase 1 delivered the core platform:
 
 Phase 2 is organized into four parallel work streams. The Desktop Client (WS-4) is a new stream.
 
-| Stream | App            | Can Start Immediately                | Blocked On                            |
-| ------ | -------------- | ------------------------------------ | ------------------------------------- |
-| WS-1   | Hub API        | Yes                                  | —                                     |
-| WS-2   | Pod API        | Yes (most tasks independent)         | WS-1 (TURN creds) for voice          |
-| WS-3   | Web Client     | Partially                            | WS-2 (voice, threads, etc.) for UI   |
-| WS-4   | Desktop Client | Yes (shell setup is independent)     | WS-3 (shared React app)              |
-| WS-5   | Pod Admin SPA  | Yes                                  | WS-2 (Pod API endpoints)             |
+| Stream | App            | Can Start Immediately            | Blocked On                         |
+| ------ | -------------- | -------------------------------- | ---------------------------------- |
+| WS-1   | Hub API        | Yes                              | —                                  |
+| WS-2   | Pod API        | Yes (most tasks independent)     | WS-1 (TURN creds) for voice        |
+| WS-3   | Web Client     | Partially                        | WS-2 (voice, threads, etc.) for UI |
+| WS-4   | Desktop Client | Yes (shell setup is independent) | WS-3 (shared React app)            |
+| WS-5   | Pod Admin SPA  | Yes                              | WS-2 (Pod API endpoints)           |
 
 **Critical paths:**
+
 - Voice: Hub TURN provisioning → Pod SFU setup → Pod voice signaling → Web Client voice UI → Desktop voice
 - Notifications: Hub preferred pods API → Hub notification relay → Client notification negotiation
 - Desktop: Electron shell → embed web client → system tray + hotkeys → auto-update
@@ -230,6 +231,7 @@ When MFA is enabled, the OIDC token endpoint returns a partial response after pa
 The client then calls `POST /api/v1/users/@me/mfa/verify` with the `mfa_token` + code. On success, the full token set is returned.
 
 **Implementation notes:**
+
 - Use `totp-rs` crate for TOTP generation and validation
 - Allow ±1 time step window (previous + current + next 30s period) for clock drift
 - Backup codes: 8 codes, 8 alphanumeric characters each, Argon2id-hashed in DB
@@ -262,6 +264,7 @@ Add WebAuthn/Passkey support as a passwordless MFA option.
    - Validates assertion, updates `sign_count`, issues tokens
 
 **Implementation notes:**
+
 - Use `webauthn-rs` crate
 - Passkeys can be used as primary auth (passwordless) or as MFA second factor
 - Store `credential_id`, `public_key`, `sign_count`, `transports` per passkey
@@ -291,13 +294,13 @@ Implement the verification process for self-hosted pods (RFC §14).
 
 **Verification checks (automated):**
 
-| Check | Method | Auto |
-| ----- | ------ | ---- |
-| Domain ownership | DNS TXT or HTTP well-known | Yes |
-| TLS valid | Connect and verify certificate chain | Yes |
-| HTTPS-only | Check HTTP redirects to HTTPS | Yes |
-| Pod software version | Read from heartbeat `version` field | Yes |
-| Rate limiting enabled | Check `X-RateLimit-*` headers on a test request | Yes |
+| Check                 | Method                                          | Auto |
+| --------------------- | ----------------------------------------------- | ---- |
+| Domain ownership      | DNS TXT or HTTP well-known                      | Yes  |
+| TLS valid             | Connect and verify certificate chain            | Yes  |
+| HTTPS-only            | Check HTTP redirects to HTTPS                   | Yes  |
+| Pod software version  | Read from heartbeat `version` field             | Yes  |
+| Rate limiting enabled | Check `X-RateLimit-*` headers on a test request | Yes  |
 
 **Policy compliance (manual review — deferred):**
 For Phase 2, policy compliance checks (community guidelines, moderator presence, abuse response time) are deferred. Verification in Phase 2 only covers the automated technical checks.
@@ -317,6 +320,7 @@ Store and serve the user's preferred pod list (up to 10 pods that get direct Web
 **Endpoints:**
 
 1. `GET /api/v1/users/@me/preferences` — Get user preferences
+
    ```json
    {
      "preferred_pods": ["pod_01J9NX...", "pod_02AB..."],
@@ -330,6 +334,7 @@ Store and serve the user's preferred pod list (up to 10 pods that get direct Web
    - Validate: user must be a member of each pod (check bookmarks)
 
 3. Extend `GET /api/v1/users/@me/pods` response to include notification capability per pod:
+
    ```json
    {
      "pods": [
@@ -376,6 +381,7 @@ Connection lifecycle:
 
 1. Client connects to `wss://{HUB_URL}/gateway?v=1&encoding=json`
 2. Client sends IDENTIFY:
+
    ```json
    {
      "op": 2,
@@ -385,6 +391,7 @@ Connection lifecycle:
      }
    }
    ```
+
    `subscribe_pods` contains non-preferred pods that have `relay: true`.
 
 3. Hub validates token, resolves user, registers in routing table
@@ -405,6 +412,7 @@ Connection lifecycle:
 **Notification push endpoint** (Pod → Hub):
 
 `POST /api/v1/notifications/push`
+
 - Authenticated via Pod client credentials (Basic auth or Bearer from client_credentials grant)
 - Gated: only accepted from pods with relay enabled (managed or paid plan)
 
@@ -443,6 +451,7 @@ Hub looks up each `user_id` in the routing table. If the user has an active Hub 
 ```
 
 **Implementation notes:**
+
 - Routing table: `HashMap<UserId, HubGatewayConnection>` behind a `RwLock` or use `dashmap`
 - Hub Gateway is much simpler than Pod Gateway — no channel subscriptions, no message fanout, just user → connection mapping and forwarding
 - Rate limit: pods can push max 1000 events per minute per pod
@@ -458,6 +467,7 @@ Pods request time-limited TURN credentials from the Hub so their users can estab
 **Endpoint:**
 
 `POST /api/v1/turn/credentials`
+
 - Authenticated via Pod client credentials
 - Returns ICE server configuration with HMAC-based credentials
 
@@ -481,11 +491,13 @@ Pods request time-limited TURN credentials from the Hub so their users can estab
 ```
 
 **Credential generation** (RFC 8489 long-term credentials with shared secret):
+
 - `username` = `{unix_timestamp + ttl}:{pod_id}`
 - `credential` = `base64(HMAC-SHA1(username, TURN_SHARED_SECRET))`
 - This is the standard coturn REST API credential scheme
 
 **Implementation notes:**
+
 - `TURN_SHARED_SECRET` env var — must match the coturn server's `static-auth-secret`
 - STUN server is free to provide (no auth needed); TURN requires credentials
 - Pods should cache TURN credentials and refresh when TTL is < 1 hour
@@ -577,6 +589,7 @@ In Phase 1, clients reconnect by re-IDENTIFYing, which causes a full state reloa
 **RESUME flow (op 3):**
 
 Client sends:
+
 ```json
 {
   "op": 3,
@@ -589,12 +602,14 @@ Client sends:
 ```
 
 Server:
+
 1. Look up session by `session_id`
 2. Validate `token` matches session's user
 3. If session found and seq is within buffer: replay all events after `seq`, send `RESUMED` dispatch, continue normally
 4. If session expired or seq too old: send op 7 (RECONNECT), client must re-IDENTIFY
 
 **op 7 RECONNECT:**
+
 ```json
 {
   "op": 7,
@@ -611,6 +626,7 @@ Server:
 
 **Client → Server:**
 Client sends a Gateway command when the user starts typing:
+
 ```json
 {
   "op": 0,
@@ -623,6 +639,7 @@ Client sends a Gateway command when the user starts typing:
 
 **Server → Client:**
 Server broadcasts to all other connections subscribed to that channel:
+
 ```json
 {
   "op": 0,
@@ -637,6 +654,7 @@ Server broadcasts to all other connections subscribed to that channel:
 ```
 
 **Implementation notes:**
+
 - No `TYPING_STOP` event — client-side timeout of 8 seconds handles this
 - Rate limit: max 1 typing event per 5 seconds per user per channel
 - Only broadcast to users with `VIEW_CHANNEL` permission
@@ -650,14 +668,15 @@ Server broadcasts to all other connections subscribed to that channel:
 Track user online/offline/idle/dnd status per pod.
 
 **Presence states:**
-| State     | Trigger |
+| State | Trigger |
 | --------- | ------- |
-| `online`  | Gateway connected + active |
-| `idle`    | No client activity for 5 minutes (client sends presence update) |
-| `dnd`     | Manually set by user |
+| `online` | Gateway connected + active |
+| `idle` | No client activity for 5 minutes (client sends presence update) |
+| `dnd` | Manually set by user |
 | `offline` | Gateway disconnected |
 
 **Client → Server (op 9):**
+
 ```json
 {
   "op": 9,
@@ -669,6 +688,7 @@ Track user online/offline/idle/dnd status per pod.
 ```
 
 **Server → Client (DISPATCH):**
+
 ```json
 {
   "op": 0,
@@ -682,6 +702,7 @@ Track user online/offline/idle/dnd status per pod.
 ```
 
 **Implementation notes:**
+
 - Store presence in memory per Gateway session (not in DB)
 - On READY, include initial presence for online members of the user's communities
 - Broadcast PRESENCE_UPDATE only to community members (users sharing at least one community)
@@ -715,6 +736,7 @@ Allow moderators to pin messages to a channel.
    - Requires `VIEW_CHANNEL` permission
 
 **Gateway event:**
+
 ```json
 {
   "op": 0,
@@ -770,6 +792,7 @@ Add file upload and attachment support for messages.
    - Cache-Control: public, max-age=31536000 (immutable content)
 
 **Message attachment flow:**
+
 - Client uploads file(s), receives `attachment_id`(s)
 - Client sends message with `attachments: ["att_01KPQRST..."]`
 - Server validates all attachment IDs exist and are uploaded
@@ -777,12 +800,14 @@ Add file upload and attachment support for messages.
 - `MESSAGE_CREATE` event includes full attachment objects
 
 **Storage backends:**
+
 - **Local FS** (default for self-hosted): files stored under `{DATA_DIR}/attachments/{att_id}/{filename}`
 - **S3-compatible** (optional): configurable via `STORAGE_BACKEND=s3`, `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`
 
 Implement a `StorageBackend` trait with `LocalFs` and `S3` implementations.
 
 **DB Table:**
+
 ```sql
 CREATE TABLE attachments (
     id              TEXT PRIMARY KEY,
@@ -801,6 +826,7 @@ CREATE INDEX idx_attachments_message ON attachments(message_id);
 ```
 
 **Implementation notes:**
+
 - Use `image` crate for thumbnail generation (resize, convert to WebP)
 - Set `SEND_ATTACHMENTS` permission (bit 2) — add to `@everyone` default permissions
 - Content-type allowlist: images (`image/*`), video (`video/*`), audio (`audio/*`), PDF, text, common document formats
@@ -824,6 +850,7 @@ When a message contains a URL, the pod fetches Open Graph / oEmbed metadata and 
 7. Send `MESSAGE_UPDATE` via Gateway with the embed attached
 
 **Embed format:**
+
 ```json
 {
   "type": "link",
@@ -837,6 +864,7 @@ When a message contains a URL, the pod fetches Open Graph / oEmbed metadata and 
 ```
 
 **Implementation notes:**
+
 - Fetch timeout: 5 seconds per URL
 - Max response body to scan: 1 MB (only need HTML `<head>`)
 - Proxy fetched images through the pod to avoid client IP leaks (store or cache proxied images)
@@ -871,16 +899,19 @@ Allow users to start threaded conversations from any message.
 4. Messages within threads use the same `POST /api/v1/channels/{thread_id}/messages` endpoint — threads are just channels with `type = 5`
 
 **Thread archival:**
+
 - Threads auto-archive after configurable inactivity: 1 hour, 24 hours, 3 days, 7 days (default: 24 hours)
 - Run a periodic task (every 5 minutes) to check and archive inactive threads
 - Archived threads are read-only until unarchived
 - Sending a message to an archived thread auto-unarchives it
 
 **DB changes:**
+
 - Add to `channels` table: `thread_metadata JSONB` — stores `{ parent_message_id, member_count, message_count, archived, auto_archive_seconds, last_activity_at }`
 - Thread members tracked in `community_members` or a separate `thread_members` table (simpler: just use channel-level tracking)
 
 **Gateway events:**
+
 - `THREAD_CREATE` — new thread started
 - `THREAD_UPDATE` — thread renamed, archived, or unarchived
 - `THREAD_MEMBERS_UPDATE` — user joined/left thread
@@ -895,33 +926,35 @@ The audit log table already exists from Phase 1 migrations. Phase 2 adds the que
 **Endpoint:**
 
 `GET /api/v1/communities/{id}/audit-log`
+
 - Requires `VIEW_AUDIT_LOG` permission (bit 20)
 - Query params: `user_id`, `action`, `before`, `limit` (default 50, max 100)
 - Returns audit entries with actor info, target info, and changes
 
 **Actions to log (add logging to existing + new endpoints):**
 
-| Action | Trigger |
-| ------ | ------- |
-| `channel.create` | Channel created |
-| `channel.update` | Channel settings changed |
-| `channel.delete` | Channel deleted |
-| `community.update` | Community settings changed |
-| `member.kick` | Member kicked |
-| `member.ban` | Member banned |
-| `member.unban` | Member unbanned |
-| `member.role_update` | Member roles changed |
-| `role.create` | Role created |
-| `role.update` | Role permissions/name changed |
-| `role.delete` | Role deleted |
-| `message.delete` | Message deleted by moderator (not author) |
-| `message.pin` | Message pinned |
-| `message.unpin` | Message unpinned |
-| `invite.create` | Invite created |
-| `invite.delete` | Invite revoked |
-| `channel_override.update` | Channel permission override changed |
+| Action                    | Trigger                                   |
+| ------------------------- | ----------------------------------------- |
+| `channel.create`          | Channel created                           |
+| `channel.update`          | Channel settings changed                  |
+| `channel.delete`          | Channel deleted                           |
+| `community.update`        | Community settings changed                |
+| `member.kick`             | Member kicked                             |
+| `member.ban`              | Member banned                             |
+| `member.unban`            | Member unbanned                           |
+| `member.role_update`      | Member roles changed                      |
+| `role.create`             | Role created                              |
+| `role.update`             | Role permissions/name changed             |
+| `role.delete`             | Role deleted                              |
+| `message.delete`          | Message deleted by moderator (not author) |
+| `message.pin`             | Message pinned                            |
+| `message.unpin`           | Message unpinned                          |
+| `invite.create`           | Invite created                            |
+| `invite.delete`           | Invite revoked                            |
+| `channel_override.update` | Channel permission override changed       |
 
 **Implementation notes:**
+
 - Create an `audit_log::log()` helper function that takes `community_id`, `actor_id`, `action`, `target_type`, `target_id`, `changes` (JSONB diff), `reason` (optional)
 - `changes` stores before/after values as JSON: `{ "name": { "old": "Foo", "new": "Bar" } }`
 - Audit log entries are immutable — no edit or delete
@@ -940,23 +973,23 @@ Pod-level permissions control what users can do on the pod as a whole, outside t
 
 **Pod permission definitions:**
 
-| Permission | Bit | Description |
-| ---------- | --- | ----------- |
-| `POD_CREATE_COMMUNITY` | 0 | Can create new communities on this pod |
-| `POD_MANAGE_COMMUNITIES` | 1 | Can edit/delete any community |
-| `POD_BAN_MEMBERS` | 2 | Can ban users from the entire pod |
-| `POD_MANAGE_INVITES` | 3 | Can create pod-level invites |
-| `POD_VIEW_AUDIT_LOG` | 4 | Can view pod-wide audit log |
-| `POD_MANAGE_SETTINGS` | 5 | Can change pod settings (name, description, limits) |
-| `POD_ADMINISTRATOR` | 15 | All pod permissions (overrides all) |
+| Permission               | Bit | Description                                         |
+| ------------------------ | --- | --------------------------------------------------- |
+| `POD_CREATE_COMMUNITY`   | 0   | Can create new communities on this pod              |
+| `POD_MANAGE_COMMUNITIES` | 1   | Can edit/delete any community                       |
+| `POD_BAN_MEMBERS`        | 2   | Can ban users from the entire pod                   |
+| `POD_MANAGE_INVITES`     | 3   | Can create pod-level invites                        |
+| `POD_VIEW_AUDIT_LOG`     | 4   | Can view pod-wide audit log                         |
+| `POD_MANAGE_SETTINGS`    | 5   | Can change pod settings (name, description, limits) |
+| `POD_ADMINISTRATOR`      | 15  | All pod permissions (overrides all)                 |
 
 **Pod roles:**
 
-| Role | Permissions | Notes |
-| ---- | ----------- | ----- |
-| Pod Owner (implicit) | `POD_ADMINISTRATOR` | The user who registered the pod; always has full access |
-| Pod Admin | Configurable | Assigned by pod owner |
-| Pod Member (default) | `POD_CREATE_COMMUNITY \| POD_MANAGE_INVITES` | Default for all users on the pod |
+| Role                 | Permissions                                  | Notes                                                   |
+| -------------------- | -------------------------------------------- | ------------------------------------------------------- |
+| Pod Owner (implicit) | `POD_ADMINISTRATOR`                          | The user who registered the pod; always has full access |
+| Pod Admin            | Configurable                                 | Assigned by pod owner                                   |
+| Pod Member (default) | `POD_CREATE_COMMUNITY \| POD_MANAGE_INVITES` | Default for all users on the pod                        |
 
 **DB Tables:**
 
@@ -1002,6 +1035,7 @@ if pod_permissions & POD_ADMINISTRATOR: pod_permissions = ALL
 ```
 
 **Enforcement points (update existing endpoints):**
+
 - `POST /api/v1/communities` — check `POD_CREATE_COMMUNITY`
 - `DELETE /api/v1/communities/{id}` — check `POD_MANAGE_COMMUNITIES` (or community owner)
 - `POST /api/v1/auth/login` — check user is not pod-banned
@@ -1052,6 +1086,7 @@ effective = (base & ~channel_deny) | channel_allow
 User-level overrides take priority over role-level overrides (applied last).
 
 **Implementation notes:**
+
 - Two separate permission systems: `compute_pod_permissions(user_id)` and `compute_community_permissions(user_id, channel_id)`
 - Pod permissions are checked first (e.g., can the user even create a community?), then community permissions for community-scoped actions
 - All channel-scoped permission checks (`VIEW_CHANNEL`, `SEND_MESSAGES`, etc.) must now pass through the channel-aware community resolver
@@ -1072,6 +1107,7 @@ Provide a lightweight endpoint for unread state hydration and long-poll notifica
 **Endpoint:**
 
 `GET /api/v1/unread-counts`
+
 - Requires PAT
 - Returns unread message counts and mention counts per channel the user has access to
 
@@ -1108,6 +1144,7 @@ CREATE TABLE read_states (
 **Marking as read:**
 
 `PUT /api/v1/channels/{channel_id}/read`
+
 - Request: `{ "message_id": 175928847299117056 }`
 - Updates `last_read_id` for the user + channel
 - Resets `mention_count` to 0 (or recomputes based on mentions after the new `last_read_id`)
@@ -1116,6 +1153,7 @@ CREATE TABLE read_states (
 When a message is created that `@mentions` a user, increment `mention_count` in their `read_states` record for that channel.
 
 **Implementation notes:**
+
 - This endpoint is designed to be cheap to serve — single query, no joins, no fan-out
 - Response should be cacheable for 10 seconds (`Cache-Control: max-age=10`)
 - The client polls this at 30–60 second intervals for non-preferred, non-relay pods
@@ -1140,6 +1178,7 @@ After processing a `MESSAGE_CREATE`, determine which community members need a no
    With the notification event payload (see H2-5)
 
 **Implementation notes:**
+
 - Only push if the pod has relay enabled (check config / registration status)
 - Batch events: accumulate notifications for up to 1 second, then push in one batch (max 100 events per request)
 - If Hub is unreachable, drop notifications silently (they're best-effort; the client will catch up via unread counts or when connecting)
@@ -1170,6 +1209,7 @@ Integrate mediasoup as the SFU for voice (and later video) channels using the [`
 The SFU runs as a **separate Rust binary (`voxora-sfu`)** that uses the `mediasoup` Rust crate. The mediasoup crate internally spawns C++ media worker processes (one per CPU core) — so multi-core scaling is handled automatically. The sidecar binary communicates with the Pod API over a JSON-over-Unix-socket IPC protocol.
 
 **Why a sidecar instead of in-process:**
+
 - **Independent scaling** — run multiple SFU instances per pod, or on media-optimized hardware
 - **Fault isolation** — SFU crash doesn't take down the Pod API (and vice versa)
 - **Independent restarts** — upgrade the SFU without restarting the Pod API
@@ -1195,17 +1235,17 @@ The Pod API spawns `voxora-sfu` as a child process on startup (via `tokio::proce
 
 JSON-delimited messages over a Unix domain socket. Each message is a newline-delimited JSON object.
 
-| Command | Direction | Description |
-| ------- | --------- | ----------- |
-| `create_router` | API → SFU | Create a mediasoup Router (one per voice channel) |
-| `create_webrtc_transport` | API → SFU | Create a WebRTC transport for a user |
-| `connect_transport` | API → SFU | Complete DTLS handshake |
-| `produce` | API → SFU | Start sending media (audio/video) |
-| `consume` | API → SFU | Start receiving media from another user |
-| `close_transport` | API → SFU | Clean up a user's transport |
-| `close_router` | API → SFU | Clean up a voice channel |
-| `audio_levels` | SFU → API | Periodic audio level updates for speaking indicators |
-| `error` | SFU → API | Error notification (transport failure, etc.) |
+| Command                   | Direction | Description                                          |
+| ------------------------- | --------- | ---------------------------------------------------- |
+| `create_router`           | API → SFU | Create a mediasoup Router (one per voice channel)    |
+| `create_webrtc_transport` | API → SFU | Create a WebRTC transport for a user                 |
+| `connect_transport`       | API → SFU | Complete DTLS handshake                              |
+| `produce`                 | API → SFU | Start sending media (audio/video)                    |
+| `consume`                 | API → SFU | Start receiving media from another user              |
+| `close_transport`         | API → SFU | Clean up a user's transport                          |
+| `close_router`            | API → SFU | Clean up a voice channel                             |
+| `audio_levels`            | SFU → API | Periodic audio level updates for speaking indicators |
+| `error`                   | SFU → API | Error notification (transport failure, etc.)         |
 
 Each request carries a `request_id`; the SFU responds with a matching `request_id` + `data` or `error` payload. The `audio_levels` and `error` messages are unsolicited events pushed from SFU to API.
 
@@ -1222,10 +1262,12 @@ Each request carries a `request_id`; the SFU responds with a matching `request_i
 4. Last user leaves → Pod sends `close_router` to SFU
 
 **Codec configuration:**
+
 - Audio: Opus @ 48kHz (mandatory), bitrate 32–128 kbps
 - Video: VP9 preferred, VP8 fallback (Phase 3)
 
 **SFU startup configuration (`voxora-sfu`):**
+
 - Listens on a configurable Unix socket path (default: `/tmp/voxora-sfu.sock`)
 - Number of mediasoup Workers = number of CPU cores (configurable)
 - Log level inherited from Pod API environment
@@ -1241,6 +1283,7 @@ Voice state management and signaling through the existing Pod Gateway.
 **Client → Server — Voice State Update (op 4):**
 
 Join voice channel:
+
 ```json
 {
   "op": 4,
@@ -1253,6 +1296,7 @@ Join voice channel:
 ```
 
 Leave voice channel (null channel):
+
 ```json
 {
   "op": 4,
@@ -1263,6 +1307,7 @@ Leave voice channel (null channel):
 ```
 
 **Server → Client — Voice Server Info (op 5):**
+
 ```json
 {
   "op": 5,
@@ -1281,6 +1326,7 @@ Leave voice channel (null channel):
 ```
 
 **Server → All — Voice State Update (DISPATCH):**
+
 ```json
 {
   "op": 0,
@@ -1356,6 +1402,7 @@ CREATE INDEX idx_voice_user ON voice_sessions(user_id);
 ```
 
 **Implementation notes:**
+
 - Voice state is cleaned up when a user disconnects from the Gateway
 - `user_limit` on voice channels (0 = unlimited) is enforced on join
 - Server mute/deafen requires `VOICE_MUTE_OTHERS` / `VOICE_DEAFEN_OTHERS` permission
@@ -1434,43 +1481,58 @@ apps/web-client/src/
 Implement the client-side notification negotiation system.
 
 **Initial unread hydration:**
+
 - After receiving `READY` from any pod's Gateway, immediately call `GET /api/v1/unread-counts` on that pod
 - Populate the unread store so sidebar badges are accurate from first render
 - The `READY` event contains communities and channels but **not** read state — this call fills the gap
 
 **Preferred pods connection manager:**
+
 - On login, fetch `GET /api/v1/users/@me/preferences` to get preferred pod list
 - Maintain direct WebSocket connections to all preferred pods (up to 10)
 - These connections stay open regardless of which pod the user is actively viewing
 - Events from preferred pods update the unread store in real time
 
 **Hub Gateway connection:**
+
 - On login, if any non-preferred pods have `relay: true`, connect to Hub Gateway
 - Send IDENTIFY with `subscribe_pods` list
 - On `NOTIFICATION` dispatch: increment unread/mention counts in the unread store
 - Display badge counts on pod/community/channel icons in the sidebar
 
 **Long poll fallback:**
+
 - For non-preferred pods without relay, poll `GET /api/v1/unread-counts` every 30–60 seconds
 - Use increasing intervals for pods with no recent activity (30s → 60s → 120s)
 
 **Unread store (`stores/unread.ts`):**
+
 ```ts
 interface UnreadState {
   // Key: `${podId}:${channelId}`
-  channels: Record<string, { unread: number; mentions: number; lastMessageId: string }>;
+  channels: Record<
+    string,
+    { unread: number; mentions: number; lastMessageId: string }
+  >;
   markRead: (podId: string, channelId: string, messageId: string) => void;
-  increment: (podId: string, channelId: string, delta: number, hasMention: boolean) => void;
+  increment: (
+    podId: string,
+    channelId: string,
+    delta: number,
+    hasMention: boolean,
+  ) => void;
 }
 ```
 
 **Notification badges:**
+
 - Channel name in sidebar: bold + unread count badge if `unread > 0`
 - Channel name in sidebar: red badge if `mentions > 0`
 - Community icon in sidebar: dot indicator if any channel in that community has unreads
 - Pod section in sidebar: dot indicator if any community in that pod has unreads
 
 **Preferred pods UI (settings):**
+
 - In Settings, add a "Preferred Pods" section
 - Show all connected pods with toggle switches (max 10)
 - Save via `PATCH /api/v1/users/@me/preferences`
@@ -1482,6 +1544,7 @@ interface UnreadState {
 **Depends on: H2-1, H2-2**
 
 **TOTP setup flow (in Settings > Security):**
+
 1. User clicks "Enable Two-Factor Auth"
 2. Call `POST /api/v1/users/@me/mfa/totp/enable`
 3. Display QR code (from `qr_code_data_uri`) and manual entry key
@@ -1490,12 +1553,14 @@ interface UnreadState {
 6. Display backup codes with "copy all" button and warning to save them
 
 **MFA challenge during login:**
+
 - After OIDC token exchange, if response contains `mfa_required: true`:
   - Show MFA code input dialog (6-digit numeric input, auto-submit on 6 chars)
   - "Use backup code" link toggles to 8-char alphanumeric input
   - Submit to `POST /api/v1/users/@me/mfa/verify` with `mfa_token`
 
 **Passkey setup (in Settings > Security):**
+
 1. "Add Passkey" button
 2. Call `POST /api/v1/users/@me/passkeys/register/begin`
 3. Invoke `navigator.credentials.create()` with the options
@@ -1503,6 +1568,7 @@ interface UnreadState {
 5. List registered passkeys with name + last used date + delete button
 
 **Passkey login:**
+
 - "Sign in with Passkey" button on login page
 - Call `POST /api/v1/auth/passkey/begin`
 - Invoke `navigator.credentials.get()`
@@ -1514,16 +1580,22 @@ interface UnreadState {
 **Depends on: P2-2 (Pod typing support)**
 
 **Typing store (`stores/typing.ts`):**
+
 ```ts
 // Key: `${podId}:${channelId}`, value: list of typing users with timestamps
-typingUsers: Record<string, { userId: string; username: string; expiresAt: number }[]>
+typingUsers: Record<
+  string,
+  { userId: string; username: string; expiresAt: number }[]
+>;
 ```
 
 **Sending typing events:**
+
 - On keydown in message input (debounced to every 5 seconds), send typing command via Gateway
 - Stop sending when: input is empty, message is sent, or user navigates away
 
 **Displaying typing indicators:**
+
 - Below the message input, show typing indicator text:
   - 1 user: "Alice is typing..."
   - 2 users: "Alice and Bob are typing..."
@@ -1537,12 +1609,14 @@ typingUsers: Record<string, { userId: string; username: string; expiresAt: numbe
 **Depends on: P2-3 (Pod presence support)**
 
 **Presence store (`stores/presence.ts`):**
+
 ```ts
 // Key: `${podId}:${userId}`, value: presence status
-presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
+presence: Record<string, "online" | "idle" | "dnd" | "offline">;
 ```
 
 **Displaying presence:**
+
 - Member list sidebar: colored dot on avatar
   - `online` = green
   - `idle` = yellow (half-moon icon)
@@ -1551,6 +1625,7 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 - Sort member list: online → idle → dnd → offline (within each role group)
 
 **Setting own presence:**
+
 - Status selector in user area (bottom of sidebar): dropdown with online/idle/dnd
 - Auto-idle: send `PRESENCE_UPDATE` with `idle` after 5 minutes of no mouse/keyboard activity (use `document.addEventListener('mousemove'/'keydown')` with debounce)
 - On focus return: send `PRESENCE_UPDATE` with `online`
@@ -1561,12 +1636,14 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 **Depends on: P2-5 (Pod attachment support)**
 
 **File upload component:**
+
 - Drag-and-drop zone on the message input area
 - Paste handler: `onPaste` event, detect `DataTransfer.files`
 - Click-to-upload button (paperclip icon) next to message input
 - Max 10 files per message
 
 **Upload flow:**
+
 1. User drops/pastes/selects files
 2. Show preview thumbnails above the message input (image previews, file icons for non-images)
 3. For each file, call `POST /api/v1/channels/{id}/attachments` to get upload URL
@@ -1575,12 +1652,14 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 6. User sends message → include `attachment_ids` in the request
 
 **Attachment display in messages:**
+
 - Images: inline preview (click to expand in lightbox)
 - Videos: inline video player (HTML5 `<video>`)
 - Audio: inline audio player
 - Other files: file icon + filename + size + download link
 
 **Upload progress component:**
+
 - Fixed bar above message input during upload
 - Per-file progress (percentage)
 - Cancel button per file
@@ -1613,11 +1692,13 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 **Depends on: P2-12, P2-13 (Pod voice support)**
 
 **Voice channel display in sidebar:**
+
 - Voice channels (type 1) show in channel list with a speaker icon
 - Below each voice channel: list of users currently in the channel (avatar + name + speaking indicator)
 - Click voice channel to join
 
 **Voice connection flow:**
+
 1. User clicks voice channel → send op 4 (VOICE_STATE_UPDATE) via Gateway
 2. Receive op 5 (VOICE_SERVER) with transport parameters + ICE servers
 3. Create WebRTC peer connection with ICE servers
@@ -1625,7 +1706,8 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 5. Connect transport (DTLS), start producing audio
 6. Receive `VOICE_CONSUME` events for other users → create consumers and play audio
 
-**Voice controls bar (bottom of sidebar, visible when in a voice channel):**
+**Voice controls bar (bottom of sidebar, visible when in a voice channel and the mute/deafen button always):**
+
 - Current voice channel name
 - Mute/Unmute button (microphone icon)
 - Deafen/Undeafen button (headphone icon)
@@ -1633,10 +1715,12 @@ presence: Record<string, 'online' | 'idle' | 'dnd' | 'offline'>
 - Connection quality indicator (green/yellow/red)
 
 **Speaking indicators:**
+
 - Green border/glow on avatar when user is speaking
 - Based on audio level data from the SFU sidecar (via `VOICE_SPEAKING` events) or local VAD
 
 **Voice store (`stores/voice.ts`):**
+
 ```ts
 interface VoiceState {
   // Current voice connection (one at a time, across pods)
@@ -1644,12 +1728,13 @@ interface VoiceState {
   selfMute: boolean;
   selfDeaf: boolean;
   // Users in voice channels per pod
-  voiceStates: Record<string, VoiceUserState[]>;  // key: `${podId}:${channelId}`
+  voiceStates: Record<string, VoiceUserState[]>; // key: `${podId}:${channelId}`
   speakingUsers: Set<string>;
 }
 ```
 
 **Implementation notes:**
+
 - Only one voice connection at a time (across all pods) — joining a new channel disconnects from the current one
 - Use `mediasoup-client` npm package for WebRTC transport management
 - Audio processing: use Web Audio API for local speaker detection if needed
@@ -1707,6 +1792,7 @@ apps/desktop/
 Set up the Electron project to wrap the existing web client.
 
 **Setup steps:**
+
 1. Create `apps/desktop/` directory
 2. Initialize package.json with `electron`, `electron-builder`, `electron-updater`
 3. Main process (`src/main/index.ts`):
@@ -1743,6 +1829,7 @@ Set up the Electron project to wrap the existing web client.
      ```
 
 5. **Build configuration** (`electron-builder.yml`):
+
    ```yaml
    appId: app.voxora.desktop
    productName: Voxora
@@ -1790,10 +1877,10 @@ Set up the Electron project to wrap the existing web client.
 
 Register global keyboard shortcuts via `globalShortcut`:
 
-| Shortcut | Action |
-| -------- | ------ |
-| `Ctrl/Cmd + Shift + M` | Toggle mute (voice) |
-| `Ctrl/Cmd + Shift + D` | Toggle deafen (voice) |
+| Shortcut               | Action                  |
+| ---------------------- | ----------------------- |
+| `Ctrl/Cmd + Shift + M` | Toggle mute (voice)     |
+| `Ctrl/Cmd + Shift + D` | Toggle deafen (voice)   |
 | `Ctrl/Cmd + Shift + V` | Show/hide Voxora window |
 
 - Hotkeys should be configurable in settings
@@ -1977,6 +2064,7 @@ Add admin-only endpoints to the Pod API. All require the requesting user to be t
    - Returns checklist with pass/fail status for each check
 
 **Authentication:**
+
 - During first-run setup (no registration yet): endpoints are open but rate-limited (only `/admin/setup-status` and `/admin/setup`)
 - After registration: all `/admin/*` endpoints require PAT from the pod owner (validated by checking `user_id == pod.owner_id`)
 
@@ -1997,6 +2085,7 @@ The setup wizard runs when the pod starts with no registration credentials.
 6. **Complete**: "Your pod is live! Share this URL to let people join." Shows the pod URL and a link to the admin dashboard
 
 **Implementation notes:**
+
 - The setup wizard is a multi-step form (wizard pattern)
 - OAuth flow: Pod acts as a temporary OAuth client — it redirects the admin's browser to Hub `/oidc/authorize`, receives the callback at `/admin/callback`, and uses the resulting SIA to register
 - After setup completes, the wizard route redirects to the dashboard and is no longer accessible
@@ -2044,6 +2133,7 @@ Post-setup dashboard for ongoing pod management.
    - Links to the community audit log endpoint
 
 **Implementation notes:**
+
 - Keep the admin SPA small — use minimal shadcn components, no heavy dependencies
 - Build output should be < 500 KB gzipped to keep the Pod binary lean
 - Use `@tanstack/react-router` for routing (same as web client, familiar patterns)
@@ -2064,6 +2154,7 @@ Post-setup dashboard for ongoing pod management.
 **Build integration:**
 
 Add to `apps/pod-api/project.json`:
+
 ```json
 {
   "targets": {
@@ -2219,58 +2310,58 @@ CREATE TABLE pod_bans (
 
 ### Hub API — New Rust Crates
 
-| Crate | Purpose |
-| ----- | ------- |
-| `totp-rs` | TOTP code generation + validation |
-| `webauthn-rs` | WebAuthn/Passkey registration + auth |
-| `hmac` + `sha1` | TURN credential generation (HMAC-SHA1) |
-| `dashmap` | Concurrent HashMap for Hub Gateway routing table |
-| `trust-dns-resolver` | DNS TXT record lookup for pod verification |
+| Crate                | Purpose                                          |
+| -------------------- | ------------------------------------------------ |
+| `totp-rs`            | TOTP code generation + validation                |
+| `webauthn-rs`        | WebAuthn/Passkey registration + auth             |
+| `hmac` + `sha1`      | TURN credential generation (HMAC-SHA1)           |
+| `dashmap`            | Concurrent HashMap for Hub Gateway routing table |
+| `trust-dns-resolver` | DNS TXT record lookup for pod verification       |
 
 ### Pod API — New Rust Crates
 
-| Crate | Purpose |
-| ----- | ------- |
-| `image` | Image thumbnail generation (resize, WebP conversion) |
-| `scraper` | HTML parsing for URL embed (OG tag extraction) |
-| `tokio::process` | Spawn + supervise voxora-sfu sidecar process |
-| `tokio::net::UnixStream` | IPC communication with voxora-sfu |
-| `rust-embed` | Embed Pod Admin SPA static files in binary |
+| Crate                    | Purpose                                              |
+| ------------------------ | ---------------------------------------------------- |
+| `image`                  | Image thumbnail generation (resize, WebP conversion) |
+| `scraper`                | HTML parsing for URL embed (OG tag extraction)       |
+| `tokio::process`         | Spawn + supervise voxora-sfu sidecar process         |
+| `tokio::net::UnixStream` | IPC communication with voxora-sfu                    |
+| `rust-embed`             | Embed Pod Admin SPA static files in binary           |
 
 ### Voxora SFU Sidecar — Rust Crates
 
-| Crate | Purpose |
-| ----- | ------- |
-| `mediasoup` | SFU core library (Rust crate, manages C++ media workers internally) |
-| `tokio` | Async runtime |
-| `serde` + `serde_json` | IPC message serialization |
-| `tokio::net::UnixListener` | IPC server (Unix socket) |
-| `tracing` | Structured logging (same as Pod API) |
+| Crate                      | Purpose                                                             |
+| -------------------------- | ------------------------------------------------------------------- |
+| `mediasoup`                | SFU core library (Rust crate, manages C++ media workers internally) |
+| `tokio`                    | Async runtime                                                       |
+| `serde` + `serde_json`     | IPC message serialization                                           |
+| `tokio::net::UnixListener` | IPC server (Unix socket)                                            |
+| `tracing`                  | Structured logging (same as Pod API)                                |
 
 ### Web Client — New npm Packages
 
-| Package | Purpose |
-| ------- | ------- |
-| `mediasoup-client` | WebRTC transport management (client-side SFU) |
-| `@simplewebauthn/browser` | WebAuthn browser helpers |
+| Package                   | Purpose                                       |
+| ------------------------- | --------------------------------------------- |
+| `mediasoup-client`        | WebRTC transport management (client-side SFU) |
+| `@simplewebauthn/browser` | WebAuthn browser helpers                      |
 
 ### Pod Admin SPA — npm Packages
 
-| Package | Purpose |
-| ------- | ------- |
-| `react` + `react-dom` | UI framework |
-| `@tanstack/react-router` | Routing (same as web client) |
-| `tailwindcss` | Styling (same as web client) |
-| `vite` | Build tool |
-| shadcn/ui (minimal set) | Button, Input, Card, Table, Badge, Dialog |
+| Package                  | Purpose                                   |
+| ------------------------ | ----------------------------------------- |
+| `react` + `react-dom`    | UI framework                              |
+| `@tanstack/react-router` | Routing (same as web client)              |
+| `tailwindcss`            | Styling (same as web client)              |
+| `vite`                   | Build tool                                |
+| shadcn/ui (minimal set)  | Button, Input, Card, Table, Badge, Dialog |
 
 ### Desktop Client — npm Packages
 
-| Package | Purpose |
-| ------- | ------- |
-| `electron` | Desktop shell |
+| Package            | Purpose                               |
+| ------------------ | ------------------------------------- |
+| `electron`         | Desktop shell                         |
 | `electron-builder` | Build + package (dmg, nsis, AppImage) |
-| `electron-updater` | Auto-update from GitHub Releases |
+| `electron-updater` | Auto-update from GitHub Releases      |
 
 ---
 

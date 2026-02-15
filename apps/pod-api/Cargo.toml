@@ -8,6 +8,7 @@ default-run = "pod-api"
 voxora-common = { path = "../../libs/common" }
 
 async-trait = "0.1"
+dashmap = "6"
 axum = { version = "0.8", features = ["macros", "ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
@@ -17,6 +18,7 @@ diesel_migrations = "2"
 dotenvy = "0.15"
 futures-util = { version = "0.3", features = ["alloc"] }
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
+parking_lot = "0.12"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 rpassword = "5"

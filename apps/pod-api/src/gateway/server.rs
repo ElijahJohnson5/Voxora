@@ -15,10 +15,13 @@ use tokio::time;
 use crate::AppState;
 
 use super::events::{
-    ClientMessage, GatewayMessage, HeartbeatPayload, IdentifyPayload, OP_HEARTBEAT, OP_IDENTIFY,
+    ClientMessage, EventName, GatewayMessage, HeartbeatPayload, IdentifyPayload, ResumePayload,
+    OP_HEARTBEAT, OP_IDENTIFY, OP_RESUME,
 };
 use super::fanout::BroadcastPayload;
 use super::handler::{handle_identify, HEARTBEAT_INTERVAL_MS};
+use super::registry::SessionRegistry;
+use super::resume::handle_resume;
 use super::session::GatewaySession;
 
 /// Close codes (4000-range for application-level).
@@ -28,8 +31,14 @@ const CLOSE_NOT_AUTHENTICATED: u16 = 4003;
 const CLOSE_AUTH_FAILED: u16 = 4004;
 const CLOSE_SESSION_TIMEOUT: u16 = 4009;
 
-/// Timeout for receiving IDENTIFY after connection (seconds).
+/// Timeout for receiving IDENTIFY/RESUME after connection (seconds).
 const IDENTIFY_TIMEOUT_SECS: u64 = 10;
+
+/// The initial opcode parsed from the client's first message.
+enum InitialOp {
+    Identify(IdentifyPayload),
+    Resume(ResumePayload),
+}
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/gateway", get(ws_upgrade))
@@ -42,8 +51,8 @@ async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl
 async fn handle_connection(socket: WebSocket, state: AppState) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    // Step 1: Wait for IDENTIFY within timeout.
-    let identify_result = time::timeout(Duration::from_secs(IDENTIFY_TIMEOUT_SECS), async {
+    // Step 1: Wait for IDENTIFY or RESUME within timeout.
+    let initial_result = time::timeout(Duration::from_secs(IDENTIFY_TIMEOUT_SECS), async {
         while let Some(msg) = ws_rx.next().await {
             let msg = match msg {
                 Ok(m) => m,
@@ -68,35 +77,60 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                 }
             };
 
-            if client_msg.op != OP_IDENTIFY {
-                let _ = send_close(&mut ws_tx, CLOSE_NOT_AUTHENTICATED, "Expected IDENTIFY").await;
-                return Err("expected identify");
+            match client_msg.op {
+                OP_IDENTIFY => {
+                    let payload: IdentifyPayload = serde_json::from_value(client_msg.d)
+                        .map_err(|_| "invalid identify payload")?;
+                    return Ok(InitialOp::Identify(payload));
+                }
+                OP_RESUME => {
+                    let payload: ResumePayload = serde_json::from_value(client_msg.d)
+                        .map_err(|_| "invalid resume payload")?;
+                    return Ok(InitialOp::Resume(payload));
+                }
+                _ => {
+                    let _ =
+                        send_close(&mut ws_tx, CLOSE_NOT_AUTHENTICATED, "Expected IDENTIFY or RESUME")
+                            .await;
+                    return Err("expected identify or resume");
+                }
             }
-
-            let payload: IdentifyPayload =
-                serde_json::from_value(client_msg.d).map_err(|_| "invalid identify payload")?;
-
-            return Ok(payload);
         }
         Err("connection closed before identify")
     })
     .await;
 
-    let identify_payload = match identify_result {
-        Ok(Ok(p)) => p,
+    let initial_op = match initial_result {
+        Ok(Ok(op)) => op,
         Ok(Err(reason)) => {
-            tracing::debug!(%reason, "identify failed");
+            tracing::debug!(%reason, "initial handshake failed");
             let _ = send_close(&mut ws_tx, CLOSE_AUTH_FAILED, reason).await;
             return;
         }
         Err(_timeout) => {
-            let _ = send_close(&mut ws_tx, CLOSE_SESSION_TIMEOUT, "IDENTIFY timeout").await;
+            let _ = send_close(&mut ws_tx, CLOSE_SESSION_TIMEOUT, "Handshake timeout").await;
             return;
         }
     };
 
-    // Step 2: Process IDENTIFY — validate ticket, build READY.
-    let (session, ready_msg) = match handle_identify(&state, identify_payload).await {
+    match initial_op {
+        InitialOp::Identify(payload) => {
+            handle_identify_path(&state, payload, ws_tx, ws_rx).await;
+        }
+        InitialOp::Resume(payload) => {
+            handle_resume_path(&state, payload, ws_tx, ws_rx).await;
+        }
+    }
+}
+
+/// IDENTIFY path — same as before, plus registry integration.
+async fn handle_identify_path(
+    state: &AppState,
+    payload: IdentifyPayload,
+    mut ws_tx: futures_util::stream::SplitSink<WebSocket, Message>,
+    ws_rx: futures_util::stream::SplitStream<WebSocket>,
+) {
+    let (session, ready_msg) = match handle_identify(state, payload).await {
         Ok(result) => result,
         Err(reason) => {
             tracing::debug!(%reason, "identify handler failed");
@@ -118,10 +152,82 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // Step 3: Run the main event loop.
+    // Run the main event loop.
     let session = Arc::new(session);
     let broadcast_rx = state.broadcast.subscribe();
-    run_session(session, ws_tx, ws_rx, broadcast_rx).await;
+    let registry = state.sessions.clone();
+    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, registry.clone()).await;
+
+    // Mark session as disconnected for resume support.
+    registry.mark_disconnected(&session.session_id);
+
+    tracing::info!(
+        session_id = %session.session_id,
+        user_id = %session.user_id,
+        "gateway session ended"
+    );
+}
+
+/// RESUME path — validate, replay missed events, then enter normal event loop.
+async fn handle_resume_path(
+    state: &AppState,
+    payload: ResumePayload,
+    mut ws_tx: futures_util::stream::SplitSink<WebSocket, Message>,
+    ws_rx: futures_util::stream::SplitStream<WebSocket>,
+) {
+    let (session, replay_events) = match handle_resume(state, payload).await {
+        Ok(result) => result,
+        Err(reason) => {
+            tracing::debug!(%reason, "resume handler failed");
+            let reconnect = GatewayMessage::reconnect(reason);
+            let json = serde_json::to_string(&reconnect).unwrap();
+            let _ = ws_tx.send(Message::Text(json.into())).await;
+            let _ = send_close(&mut ws_tx, CLOSE_AUTH_FAILED, reason).await;
+            return;
+        }
+    };
+
+    tracing::info!(
+        session_id = %session.session_id,
+        user_id = %session.user_id,
+        replayed = replay_events.len(),
+        "gateway session resumed"
+    );
+
+    // Subscribe to broadcasts before sending replayed events so we don't miss
+    // anything that arrives concurrently.
+    let broadcast_rx = state.broadcast.subscribe();
+
+    // Replay missed events.
+    for entry in &replay_events {
+        let msg = GatewayMessage::dispatch(&entry.event_name, entry.seq, entry.data.clone());
+        let json = serde_json::to_string(&msg).unwrap();
+        if ws_tx.send(Message::Text(json.into())).await.is_err() {
+            return;
+        }
+    }
+
+    // Send RESUMED dispatch.
+    let session = Arc::new(session);
+    let seq = session.next_seq();
+    let resumed_msg = GatewayMessage::dispatch(EventName::RESUMED, seq, serde_json::json!({}));
+    let json = serde_json::to_string(&resumed_msg).unwrap();
+    if ws_tx.send(Message::Text(json.into())).await.is_err() {
+        return;
+    }
+
+    // Enter the normal event loop.
+    let registry = state.sessions.clone();
+    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, registry.clone()).await;
+
+    // Mark session as disconnected again.
+    registry.mark_disconnected(&session.session_id);
+
+    tracing::info!(
+        session_id = %session.session_id,
+        user_id = %session.user_id,
+        "gateway session ended (after resume)"
+    );
 }
 
 /// Main session event loop: read client messages, forward broadcasts, enforce heartbeat.
@@ -130,6 +236,7 @@ async fn run_session(
     mut ws_tx: futures_util::stream::SplitSink<WebSocket, Message>,
     mut ws_rx: futures_util::stream::SplitStream<WebSocket>,
     mut broadcast_rx: broadcast::Receiver<Arc<BroadcastPayload>>,
+    registry: Arc<SessionRegistry>,
 ) {
     // Heartbeat deadline: client must heartbeat within 1.5× the interval.
     let heartbeat_deadline = Duration::from_millis(HEARTBEAT_INTERVAL_MS * 3 / 2);
@@ -197,6 +304,14 @@ async fn run_session(
                         if ws_tx.send(Message::Text(json.into())).await.is_err() {
                             break;
                         }
+
+                        // Write to replay buffer for resume support.
+                        registry.append_event(
+                            &session.session_id,
+                            seq,
+                            &payload.event_name,
+                            payload.data.clone(),
+                        );
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(
@@ -226,12 +341,6 @@ async fn run_session(
             }
         }
     }
-
-    tracing::info!(
-        session_id = %session.session_id,
-        user_id = %session.user_id,
-        "gateway session ended"
-    );
 }
 
 /// Send a WebSocket close frame with a code and reason.

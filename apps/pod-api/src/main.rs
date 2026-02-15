@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
@@ -13,6 +14,7 @@ use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::gateway::fanout::GatewayBroadcast;
+use pod_api::gateway::registry::SessionRegistry;
 use pod_api::routes::ApiDoc;
 use pod_api::AppState;
 use std::path::Path;
@@ -47,6 +49,20 @@ async fn main() {
 
     let snowflake = Arc::new(SnowflakeGenerator::new(0));
     let broadcast = Arc::new(GatewayBroadcast::new());
+    let sessions = Arc::new(SessionRegistry::new());
+
+    // Spawn background task to clean up expired gateway sessions (every 60s).
+    let cleanup_sessions = sessions.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let removed = cleanup_sessions.cleanup_expired();
+            if removed > 0 {
+                tracing::debug!(removed, "cleaned up expired gateway sessions");
+            }
+        }
+    });
 
     let state = AppState {
         db,
@@ -55,6 +71,7 @@ async fn main() {
         config: Arc::new(config),
         snowflake,
         broadcast,
+        sessions,
     };
 
     let cors = CorsLayer::new()

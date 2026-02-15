@@ -10,7 +10,9 @@ use serde_json::Value;
 pub const OP_DISPATCH: u8 = 0;
 pub const OP_HEARTBEAT: u8 = 1;
 pub const OP_IDENTIFY: u8 = 2;
+pub const OP_RESUME: u8 = 3;
 pub const OP_HEARTBEAT_ACK: u8 = 6;
+pub const OP_RECONNECT: u8 = 7;
 
 // ---------------------------------------------------------------------------
 // Server → Client message
@@ -35,6 +37,16 @@ impl GatewayMessage {
             t: Some(event_name.to_string()),
             s: Some(seq),
             d: data,
+        }
+    }
+
+    /// Build a RECONNECT message (op=7) telling the client to re-IDENTIFY.
+    pub fn reconnect(reason: &str) -> Self {
+        Self {
+            op: OP_RECONNECT,
+            t: None,
+            s: None,
+            d: serde_json::json!({ "reason": reason }),
         }
     }
 
@@ -71,6 +83,17 @@ pub struct IdentifyPayload {
 }
 
 // ---------------------------------------------------------------------------
+// RESUME payload
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ResumePayload {
+    pub session_id: String,
+    pub token: String,
+    pub seq: u64,
+}
+
+// ---------------------------------------------------------------------------
 // HEARTBEAT payload
 // ---------------------------------------------------------------------------
 
@@ -101,4 +124,5 @@ impl EventName {
     pub const MEMBER_JOIN: &'static str = "MEMBER_JOIN";
     pub const MEMBER_LEAVE: &'static str = "MEMBER_LEAVE";
     pub const MEMBER_UPDATE: &'static str = "MEMBER_UPDATE";
+    pub const RESUMED: &'static str = "RESUMED";
 }

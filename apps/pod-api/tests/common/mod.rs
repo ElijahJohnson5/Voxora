@@ -11,6 +11,7 @@ use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::gateway::fanout::GatewayBroadcast;
+use pod_api::gateway::registry::SessionRegistry;
 use pod_api::AppState;
 use voxora_common::SnowflakeGenerator;
 
@@ -176,6 +177,8 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
     let snowflake = Arc::new(SnowflakeGenerator::new(worker_id));
     let broadcast = Arc::new(GatewayBroadcast::new());
 
+    let sessions = Arc::new(SessionRegistry::new());
+
     let state = AppState {
         db,
         kv,
@@ -183,6 +186,7 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
         config: Arc::new(config),
         snowflake,
         broadcast,
+        sessions,
     };
 
     (state, signing_keys)

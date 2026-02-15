@@ -57,6 +57,43 @@ async fn login_and_get_ticket(
         .to_string()
 }
 
+/// Helper: log in a user and return both the PAT (access_token) and ws_ticket.
+async fn login_and_get_token_and_ticket(
+    addr: SocketAddr,
+    keys: &common::TestSigningKeys,
+    config: &pod_api::config::Config,
+    user_id: &str,
+    username: &str,
+) -> (String, String) {
+    let sia = common::mint_test_sia(
+        keys,
+        &config.hub_url,
+        user_id,
+        &config.pod_id,
+        username,
+        username,
+    );
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://{addr}/api/v1/auth/login"))
+        .json(&serde_json::json!({ "sia": sia }))
+        .send()
+        .await
+        .expect("login request");
+
+    let body: serde_json::Value = resp.json().await.expect("parse login response");
+    let token = body["access_token"]
+        .as_str()
+        .expect("access_token present")
+        .to_string();
+    let ticket = body["ws_ticket"]
+        .as_str()
+        .expect("ws_ticket present")
+        .to_string();
+    (token, ticket)
+}
+
 /// Helper: connect to the gateway WebSocket and send IDENTIFY.
 /// Returns the WebSocket stream after receiving READY.
 async fn connect_and_identify(
@@ -467,6 +504,401 @@ async fn gateway_ready_includes_community_data() {
     assert!(!c["channels"].as_array().unwrap().is_empty());
     assert!(c["roles"].is_array());
     assert!(!c["roles"].as_array().unwrap().is_empty());
+
+    // Cleanup.
+    common::cleanup_community(&state.db, &community_id).await;
+    common::cleanup_test_user(&state.db, &user_id).await;
+}
+
+// ---------------------------------------------------------------------------
+// Resume tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn gateway_resume_replays_missed_events() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_id = voxora_common::id::prefixed_ulid("usr");
+
+    // Login to get PAT + ticket.
+    let (token, ticket) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_id, "gw_resume_user")
+            .await;
+
+    // Create a community + get default channel.
+    let client = reqwest::Client::new();
+    let create_resp = client
+        .post(format!("http://{addr}/api/v1/communities"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({ "name": "Resume Test Community" }))
+        .send()
+        .await
+        .unwrap();
+    let community: serde_json::Value = create_resp.json().await.unwrap();
+    let community_id = community["id"].as_str().unwrap().to_string();
+    let channel_id = community["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Manual connect to capture session_id from READY.
+    let url = format!("ws://{addr}/gateway");
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let identify = serde_json::json!({
+        "op": 2,
+        "d": { "ticket": ticket }
+    });
+    write
+        .send(tungstenite::Message::Text(identify.to_string().into()))
+        .await
+        .expect("send identify");
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let ready: serde_json::Value = serde_json::from_str(&text).expect("parse READY");
+    assert_eq!(ready["t"], "READY");
+    let session_id = ready["d"]["session_id"].as_str().unwrap().to_string();
+    let ready_seq = ready["s"].as_u64().unwrap();
+
+    // Send a message while connected so it enters the replay buffer.
+    client
+        .post(format!(
+            "http://{addr}/api/v1/channels/{channel_id}/messages"
+        ))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({ "content": "msg while connected" }))
+        .send()
+        .await
+        .unwrap();
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse event");
+    assert_eq!(event["t"], "MESSAGE_CREATE");
+    let connected_seq = event["s"].as_u64().unwrap();
+
+    // Disconnect.
+    drop(write);
+    drop(read);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Reconnect with RESUME using the READY seq (before the MESSAGE_CREATE).
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws reconnect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let resume = serde_json::json!({
+        "op": 3,
+        "d": {
+            "session_id": session_id,
+            "token": token,
+            "seq": ready_seq
+        }
+    });
+    write
+        .send(tungstenite::Message::Text(resume.to_string().into()))
+        .await
+        .expect("send resume");
+
+    // Should receive the replayed MESSAGE_CREATE.
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse replayed event");
+    assert_eq!(event["op"], 0);
+    assert_eq!(event["t"], "MESSAGE_CREATE");
+    assert_eq!(event["s"], connected_seq);
+
+    // Then RESUMED dispatch.
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse RESUMED");
+    assert_eq!(event["op"], 0);
+    assert_eq!(event["t"], "RESUMED");
+
+    // Cleanup.
+    common::cleanup_community(&state.db, &community_id).await;
+    common::cleanup_test_user(&state.db, &user_id).await;
+}
+
+#[tokio::test]
+async fn gateway_resume_invalid_session_sends_reconnect() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_id = voxora_common::id::prefixed_ulid("usr");
+
+    let (token, _ticket) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_id, "gw_bad_resume")
+            .await;
+
+    // Connect and send RESUME with a bogus session_id.
+    let url = format!("ws://{addr}/gateway");
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let resume = serde_json::json!({
+        "op": 3,
+        "d": {
+            "session_id": "gw_bogus_session_id",
+            "token": token,
+            "seq": 0
+        }
+    });
+    write
+        .send(tungstenite::Message::Text(resume.to_string().into()))
+        .await
+        .expect("send resume");
+
+    // Should receive RECONNECT (op=7).
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse RECONNECT");
+    assert_eq!(event["op"], 7);
+    assert!(!event["d"]["reason"].as_str().unwrap().is_empty());
+
+    // Then close frame.
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    match msg {
+        tungstenite::Message::Close(Some(frame)) => {
+            assert_eq!(
+                frame.code,
+                tungstenite::protocol::frame::coding::CloseCode::from(4004)
+            );
+        }
+        tungstenite::Message::Close(None) => {}
+        _ => {} // Some implementations may not send close frame separately.
+    }
+
+    // Cleanup.
+    common::cleanup_test_user(&state.db, &user_id).await;
+}
+
+#[tokio::test]
+async fn gateway_resume_wrong_user_sends_reconnect() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_a = voxora_common::id::prefixed_ulid("usr");
+    let user_b = voxora_common::id::prefixed_ulid("usr");
+
+    // Login user A and connect.
+    let (_token_a, ticket_a) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_a, "gw_user_a").await;
+
+    // Connect user A and capture session_id.
+    let url = format!("ws://{addr}/gateway");
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let identify = serde_json::json!({
+        "op": 2,
+        "d": { "ticket": ticket_a }
+    });
+    write
+        .send(tungstenite::Message::Text(identify.to_string().into()))
+        .await
+        .expect("send identify");
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let ready: serde_json::Value = serde_json::from_str(&text).expect("parse READY");
+    let session_id = ready["d"]["session_id"].as_str().unwrap().to_string();
+
+    // Disconnect user A.
+    drop(write);
+    drop(read);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Login user B.
+    let (token_b, _ticket_b) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_b, "gw_user_b").await;
+
+    // Try to RESUME user A's session with user B's token.
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let resume = serde_json::json!({
+        "op": 3,
+        "d": {
+            "session_id": session_id,
+            "token": token_b,
+            "seq": 0
+        }
+    });
+    write
+        .send(tungstenite::Message::Text(resume.to_string().into()))
+        .await
+        .expect("send resume");
+
+    // Should get RECONNECT (op=7) — user mismatch.
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse RECONNECT");
+    assert_eq!(event["op"], 7);
+
+    // Cleanup.
+    common::cleanup_test_user(&state.db, &user_a).await;
+    common::cleanup_test_user(&state.db, &user_b).await;
+}
+
+#[tokio::test]
+async fn gateway_resume_continues_sequence() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_id = voxora_common::id::prefixed_ulid("usr");
+
+    let (token, ticket) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_id, "gw_seq_user").await;
+
+    // Create a community.
+    let client = reqwest::Client::new();
+    let create_resp = client
+        .post(format!("http://{addr}/api/v1/communities"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({ "name": "Seq Test Community" }))
+        .send()
+        .await
+        .unwrap();
+    let community: serde_json::Value = create_resp.json().await.unwrap();
+    let community_id = community["id"].as_str().unwrap().to_string();
+    let channel_id = community["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Manual connect to capture session_id.
+    let url = format!("ws://{addr}/gateway");
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let identify = serde_json::json!({
+        "op": 2,
+        "d": { "ticket": ticket }
+    });
+    write
+        .send(tungstenite::Message::Text(identify.to_string().into()))
+        .await
+        .expect("send identify");
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let ready: serde_json::Value = serde_json::from_str(&text).expect("parse READY");
+    let session_id = ready["d"]["session_id"].as_str().unwrap().to_string();
+    let ready_seq = ready["s"].as_u64().unwrap();
+    assert_eq!(ready_seq, 1);
+
+    // Send a message to get seq=2.
+    client
+        .post(format!(
+            "http://{addr}/api/v1/channels/{channel_id}/messages"
+        ))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({ "content": "seq test msg" }))
+        .send()
+        .await
+        .unwrap();
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse event");
+    assert_eq!(event["s"], 2);
+
+    // Disconnect.
+    drop(write);
+    drop(read);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Resume from seq=2 (nothing to replay).
+    let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws reconnect");
+    let (mut write, mut read) = ws_stream.split();
+
+    let resume = serde_json::json!({
+        "op": 3,
+        "d": {
+            "session_id": session_id,
+            "token": token,
+            "seq": 2
+        }
+    });
+    write
+        .send(tungstenite::Message::Text(resume.to_string().into()))
+        .await
+        .expect("send resume");
+
+    // Should get RESUMED (seq should continue from 2).
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let resumed: serde_json::Value = serde_json::from_str(&text).expect("parse RESUMED");
+    assert_eq!(resumed["t"], "RESUMED");
+    assert_eq!(resumed["s"], 3, "RESUMED should be seq 3 (continuing from 2)");
+
+    // Send another message — should be seq 4.
+    client
+        .post(format!(
+            "http://{addr}/api/v1/channels/{channel_id}/messages"
+        ))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({ "content": "post-resume msg" }))
+        .send()
+        .await
+        .unwrap();
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout")
+        .expect("stream ended")
+        .expect("read error");
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse event");
+    assert_eq!(event["t"], "MESSAGE_CREATE");
+    assert_eq!(event["s"], 4, "Post-resume events should continue the sequence");
 
     // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
