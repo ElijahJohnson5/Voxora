@@ -23,6 +23,7 @@ use crate::models::community::{Community, CommunityResponse, NewCommunity, Updat
 use crate::models::community_member::NewCommunityMember;
 use crate::models::role::{NewRole, Role};
 use crate::permissions;
+use crate::pod_permissions;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -64,6 +65,15 @@ pub async fn create_community(
     State(state): State<AppState>,
     Json(body): Json<CreateCommunityRequest>,
 ) -> Result<(StatusCode, Json<CommunityResponse>), ApiError> {
+    // Check pod-level permission.
+    pod_permissions::check_pod_permission(
+        &state.db,
+        state.config.pod_owner_id.as_deref(),
+        &user_id,
+        pod_permissions::POD_CREATE_COMMUNITY,
+    )
+    .await?;
+
     // Validate.
     let name = body.name.trim().to_string();
     let mut errors = Vec::new();
@@ -423,11 +433,15 @@ pub async fn delete_community(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    // Only the owner can delete.
+    // Owner can always delete. Otherwise, check POD_MANAGE_COMMUNITIES.
     if !permissions::is_owner(&state.db, &id, &user_id).await? {
-        return Err(ApiError::forbidden(
-            "Only the community owner can delete this community",
-        ));
+        pod_permissions::check_pod_permission(
+            &state.db,
+            state.config.pod_owner_id.as_deref(),
+            &user_id,
+            pod_permissions::POD_MANAGE_COMMUNITIES,
+        )
+        .await?;
     }
 
     let mut conn = state.db.get().await?;

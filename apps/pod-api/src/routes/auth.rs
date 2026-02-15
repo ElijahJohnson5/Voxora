@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 use crate::auth::{sia, tokens};
 use crate::error::{ApiError, ApiErrorBody};
 use crate::models::pod_user;
+use crate::pod_permissions;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -82,6 +83,11 @@ pub async fn login(
         hub_flags,
     )
     .await?;
+
+    // Check if user is banned from the pod.
+    if pod_permissions::is_pod_banned(&state.db, &user.id).await? {
+        return Err(ApiError::forbidden("You are banned from this pod"));
+    }
 
     // Generate tokens.
     let pat = tokens::generate_pat();

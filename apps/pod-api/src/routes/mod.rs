@@ -1,6 +1,7 @@
 pub mod audit_log;
 pub mod auth;
 pub mod bans;
+pub mod channel_overrides;
 pub mod channels;
 pub mod communities;
 pub mod health;
@@ -8,6 +9,7 @@ pub mod invites;
 pub mod members;
 pub mod messages;
 pub mod pins;
+pub mod pod;
 pub mod read_states;
 pub mod roles;
 
@@ -33,7 +35,9 @@ pub fn router() -> Router<AppState> {
                 .merge(bans::router())
                 .merge(pins::router())
                 .merge(read_states::router())
-                .merge(audit_log::router()),
+                .merge(audit_log::router())
+                .merge(pod::router())
+                .merge(channel_overrides::router()),
         )
 }
 
@@ -107,6 +111,21 @@ impl Modify for SecurityAddon {
         read_states::mark_as_read,
         // Audit Log
         audit_log::list_audit_log,
+        // Pod Roles
+        pod::list_pod_roles,
+        pod::create_pod_role,
+        pod::update_pod_role,
+        pod::delete_pod_role,
+        pod::assign_pod_role,
+        pod::unassign_pod_role,
+        // Pod Bans
+        pod::list_pod_bans,
+        pod::pod_ban_user,
+        pod::pod_unban_user,
+        // Channel Overrides
+        channel_overrides::list_overrides,
+        channel_overrides::upsert_override,
+        channel_overrides::delete_override,
     ),
     components(
         schemas(
@@ -151,6 +170,15 @@ impl Modify for SecurityAddon {
             read_states::MarkAsReadRequest,
             audit_log::AuditLogResponse,
             crate::models::audit_log::AuditLogEntry,
+            // Pod models
+            crate::models::pod_role::PodRole,
+            crate::models::pod_ban::PodBan,
+            crate::models::channel_override::ChannelOverride,
+            // Pod route types
+            pod::CreatePodRoleRequest,
+            pod::UpdatePodRoleRequest,
+            pod::PodBanRequest,
+            channel_overrides::UpsertOverrideRequest,
         )
     ),
     modifiers(&SecurityAddon),
@@ -168,6 +196,9 @@ impl Modify for SecurityAddon {
         (name = "Pins", description = "Message pinning"),
         (name = "Read States", description = "Read state and unread counts"),
         (name = "Audit Log", description = "Audit log"),
+        (name = "Pod Roles", description = "Pod-level role management"),
+        (name = "Pod Bans", description = "Pod-level ban management"),
+        (name = "Channel Overrides", description = "Channel permission overrides"),
     )
 )]
 pub struct ApiDoc;

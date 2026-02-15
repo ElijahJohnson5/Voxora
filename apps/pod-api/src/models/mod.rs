@@ -1,10 +1,13 @@
 pub mod audit_log;
 pub mod ban;
 pub mod channel;
+pub mod channel_override;
 pub mod community;
 pub mod community_member;
 pub mod invite;
 pub mod message;
+pub mod pod_ban;
+pub mod pod_role;
 pub mod pod_user;
 pub mod reaction;
 pub mod read_state;

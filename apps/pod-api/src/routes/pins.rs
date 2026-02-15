@@ -93,10 +93,11 @@ pub async fn pin_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-    // Check MANAGE_MESSAGES permission.
-    permissions::check_permission(
+    // Check MANAGE_MESSAGES permission (channel-aware).
+    permissions::check_channel_permission(
         &state.db,
         &channel.community_id,
+        &path.channel_id,
         &user_id,
         permissions::MANAGE_MESSAGES,
     )
@@ -211,10 +212,11 @@ pub async fn unpin_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-    // Check MANAGE_MESSAGES permission.
-    permissions::check_permission(
+    // Check MANAGE_MESSAGES permission (channel-aware).
+    permissions::check_channel_permission(
         &state.db,
         &channel.community_id,
+        &path.channel_id,
         &user_id,
         permissions::MANAGE_MESSAGES,
     )
@@ -298,10 +300,11 @@ pub async fn list_pins(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-    // Check VIEW_CHANNEL permission.
-    permissions::check_permission(
+    // Check VIEW_CHANNEL permission (channel-aware).
+    permissions::check_channel_permission(
         &state.db,
         &channel.community_id,
+        &channel_id,
         &user_id,
         permissions::VIEW_CHANNEL,
     )

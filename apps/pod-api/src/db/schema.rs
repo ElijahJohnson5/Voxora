@@ -153,6 +153,34 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    pod_roles (id) {
+        id -> Text,
+        name -> Text,
+        position -> Int4,
+        permissions -> Int8,
+        is_default -> Bool,
+        color -> Nullable<Int4>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    pod_member_roles (user_id, role_id) {
+        user_id -> Text,
+        role_id -> Text,
+    }
+}
+
+diesel::table! {
+    pod_bans (user_id) {
+        user_id -> Text,
+        reason -> Nullable<Text>,
+        banned_by -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(communities -> pod_users (owner_id));
 diesel::joinable!(roles -> communities (community_id));
 diesel::joinable!(channels -> communities (community_id));
@@ -168,6 +196,8 @@ diesel::joinable!(bans -> communities (community_id));
 diesel::joinable!(read_states -> channels (channel_id));
 diesel::joinable!(read_states -> communities (community_id));
 diesel::joinable!(read_states -> pod_users (user_id));
+diesel::joinable!(pod_member_roles -> pod_roles (role_id));
+diesel::joinable!(pod_member_roles -> pod_users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     pod_users,
@@ -182,4 +212,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bans,
     read_states,
     audit_log,
+    pod_roles,
+    pod_member_roles,
+    pod_bans,
 );

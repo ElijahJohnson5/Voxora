@@ -5,6 +5,7 @@ pub mod error;
 pub mod gateway;
 pub mod models;
 pub mod permissions;
+pub mod pod_permissions;
 pub mod routes;
 
 use std::sync::Arc;

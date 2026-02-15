@@ -13,6 +13,8 @@ pub struct Config {
     pub pod_client_secret: String,
     /// Port the HTTP server binds to.
     pub port: u16,
+    /// Optional pod owner user ID. When set, this user gets implicit POD_ADMINISTRATOR.
+    pub pod_owner_id: Option<String>,
 }
 
 impl Config {
@@ -30,6 +32,7 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4002),
+            pod_owner_id: std::env::var("POD_OWNER_ID").ok().filter(|s| !s.is_empty()),
         }
     }
 }

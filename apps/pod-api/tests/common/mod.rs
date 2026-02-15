@@ -348,6 +348,59 @@ pub async fn setup_with_message(
     (community_id, channel_id, message_id, token)
 }
 
+/// Clean up a pod ban for a test user.
+pub async fn cleanup_pod_ban(db: &pod_api::db::pool::DbPool, user_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        pod_api::db::schema::pod_bans::table
+            .filter(pod_api::db::schema::pod_bans::user_id.eq(user_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+}
+
+/// Clean up pod member roles for a test user.
+pub async fn cleanup_pod_member_roles(db: &pod_api::db::pool::DbPool, user_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    diesel::delete(
+        pod_api::db::schema::pod_member_roles::table
+            .filter(pod_api::db::schema::pod_member_roles::user_id.eq(user_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+}
+
+/// Clean up a non-default pod role.
+pub async fn cleanup_pod_role(db: &pod_api::db::pool::DbPool, role_id: &str) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+
+    let mut conn = db.get().await.expect("pool");
+    // Clean up member role assignments first
+    diesel::delete(
+        pod_api::db::schema::pod_member_roles::table
+            .filter(pod_api::db::schema::pod_member_roles::role_id.eq(role_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+    diesel::delete(
+        pod_api::db::schema::pod_roles::table
+            .filter(pod_api::db::schema::pod_roles::id.eq(role_id)),
+    )
+    .execute(&mut conn)
+    .await
+    .ok();
+}
+
 /// Login a test user and return their access token (PAT).
 pub async fn login_test_user(
     server: &axum_test::TestServer,

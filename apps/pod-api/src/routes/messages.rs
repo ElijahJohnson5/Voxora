@@ -89,10 +89,11 @@ pub async fn send_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-    // Check SEND_MESSAGES permission.
-    permissions::check_permission(
+    // Check SEND_MESSAGES permission (channel-aware).
+    permissions::check_channel_permission(
         &state.db,
         &channel.community_id,
+        &channel_id,
         &user_id,
         permissions::SEND_MESSAGES,
     )
@@ -534,7 +535,7 @@ pub async fn delete_message(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
-    // If not the author, check MANAGE_MESSAGES permission.
+    // If not the author, check MANAGE_MESSAGES permission (channel-aware).
     if message.author_id != user_id {
         let channel: Channel = diesel_async::RunQueryDsl::get_result(
             channels::table
@@ -546,9 +547,10 @@ pub async fn delete_message(
         .optional()?
         .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-        permissions::check_permission(
+        permissions::check_channel_permission(
             &state.db,
             &channel.community_id,
+            &path.channel_id,
             &user_id,
             permissions::MANAGE_MESSAGES,
         )
@@ -686,10 +688,11 @@ pub async fn add_reaction(
     .optional()?
     .ok_or_else(|| ApiError::not_found("Channel not found"))?;
 
-    // Check USE_REACTIONS permission.
-    permissions::check_permission(
+    // Check USE_REACTIONS permission (channel-aware).
+    permissions::check_channel_permission(
         &state.db,
         &channel.community_id,
+        &path.channel_id,
         &user_id,
         permissions::USE_REACTIONS,
     )
