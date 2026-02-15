@@ -56,8 +56,8 @@ async fn send_message_returns_correct_fields() {
     resp.assert_status(StatusCode::CREATED);
     let body: serde_json::Value = resp.json();
 
-    // Snowflake ID should be a positive integer.
-    assert!(body["id"].as_i64().unwrap() > 0);
+    // Snowflake ID should be a parseable positive integer (serialized as string).
+    assert!(body["id"].as_str().unwrap().parse::<i64>().unwrap() > 0);
     assert_eq!(body["channel_id"], channel_id);
     assert_eq!(body["author_id"], user_id);
     assert_eq!(body["content"], "Hello, world!");
@@ -190,7 +190,7 @@ async fn send_message_with_reply_to() {
         .await;
     resp1.assert_status(StatusCode::CREATED);
     let msg1: serde_json::Value = resp1.json();
-    let msg1_id = msg1["id"].as_i64().unwrap();
+    let msg1_id = msg1["id"].as_str().unwrap();
 
     // Reply to it.
     let resp2 = server
@@ -204,7 +204,7 @@ async fn send_message_with_reply_to() {
 
     resp2.assert_status(StatusCode::CREATED);
     let msg2: serde_json::Value = resp2.json();
-    assert_eq!(msg2["reply_to"], msg1_id);
+    assert_eq!(msg2["reply_to"].as_str().unwrap(), msg1_id);
 
     // Cleanup.
     common::cleanup_community(&state.db, &community_id).await;
@@ -294,7 +294,7 @@ async fn list_messages_with_before_cursor_and_has_more() {
             .await;
         resp.assert_status(StatusCode::CREATED);
         let msg: serde_json::Value = resp.json();
-        msg_ids.push(msg["id"].as_i64().unwrap());
+        msg_ids.push(msg["id"].as_str().unwrap().to_string());
     }
 
     // Fetch with before=msg_ids[4] (the 5th message) and limit=2.
@@ -340,7 +340,7 @@ async fn edit_message_by_author_succeeds() {
         .await;
     send_resp.assert_status(StatusCode::CREATED);
     let msg: serde_json::Value = send_resp.json();
-    let msg_id = msg["id"].as_i64().unwrap();
+    let msg_id = msg["id"].as_str().unwrap();
     assert!(msg["edited_at"].is_null());
 
     // Edit it.
@@ -380,7 +380,7 @@ async fn edit_message_by_non_author_returns_403() {
         .await;
     send_resp.assert_status(StatusCode::CREATED);
     let msg: serde_json::Value = send_resp.json();
-    let msg_id = msg["id"].as_i64().unwrap();
+    let msg_id = msg["id"].as_str().unwrap();
 
     // Another user tries to edit.
     let other_id = voxora_common::id::prefixed_ulid("usr");
@@ -424,7 +424,7 @@ async fn delete_message_by_author_succeeds() {
         .await;
     send_resp.assert_status(StatusCode::CREATED);
     let msg: serde_json::Value = send_resp.json();
-    let msg_id = msg["id"].as_i64().unwrap();
+    let msg_id = msg["id"].as_str().unwrap();
 
     // Delete it.
     let resp = server

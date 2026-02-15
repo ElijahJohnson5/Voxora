@@ -176,11 +176,12 @@ apps/hub-api/src/
 │   └── checks.rs           # Security + policy checklist
 └── migrations/
     ├── ...existing...
-    ├── 20260601_create_mfa_credentials/
-    ├── 20260601_create_passkeys/
-    ├── 20260602_create_pod_verifications/
-    ├── 20260603_create_user_preferences/
-    └── 20260604_add_pod_notification_tier/
+    ├── 20260214120000_create_passkeys/
+    ├── 20260214120001_create_mfa_backup_codes/
+    ├── 20260214120002_add_user_mfa_fields/
+    ├── 20260214120003_create_pod_verifications/
+    ├── 20260214120004_add_pod_verification_field/
+    └── 20260214120005_create_user_preferences/
 ```
 
 ### WS-1.2 Tasks
@@ -562,13 +563,13 @@ apps/pod-api/src/
 │   └── push.rs             # Push notification envelopes to Hub
 └── migrations/
     ├── ...existing...
-    ├── 012_create_attachments.sql
-    ├── 013_create_threads.sql
-    ├── 014_add_channel_voice_fields.sql
-    ├── 015_create_voice_sessions.sql
-    ├── 016_create_read_states.sql
-    ├── 017_create_pod_roles.sql
-    └── 018_create_pod_bans.sql
+    ├── 20260214120000_create_attachments/
+    ├── 20260214120001_add_channel_thread_fields/
+    ├── 20260214120002_add_channel_voice_fields/
+    ├── 20260214120003_create_voice_sessions/
+    ├── 20260214120004_create_read_states/
+    ├── 20260214120005_create_pod_roles/
+    └── 20260214120006_create_pod_bans/
 ```
 
 ### WS-2.2 Tasks
@@ -2172,7 +2173,7 @@ Add to `apps/pod-api/project.json`:
 ### Hub Database (new migrations)
 
 ```sql
--- 004_create_passkeys.sql
+-- 20260214120000_create_passkeys/up.sql
 CREATE TABLE passkeys (
     id              TEXT PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2186,7 +2187,7 @@ CREATE TABLE passkeys (
 );
 CREATE INDEX idx_passkeys_user ON passkeys(user_id);
 
--- 005_create_mfa_backup_codes.sql
+-- 20260214120001_create_mfa_backup_codes/up.sql
 CREATE TABLE mfa_backup_codes (
     id              TEXT PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2196,11 +2197,11 @@ CREATE TABLE mfa_backup_codes (
 );
 CREATE INDEX idx_backup_codes_user ON mfa_backup_codes(user_id);
 
--- 006_add_user_mfa_fields.sql
+-- 20260214120002_add_user_mfa_fields/up.sql
 ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN mfa_secret TEXT;  -- TOTP secret, encrypted
 
--- 007_create_pod_verifications.sql
+-- 20260214120003_create_pod_verifications/up.sql
 CREATE TABLE pod_verifications (
     id              TEXT PRIMARY KEY,
     pod_id          TEXT NOT NULL REFERENCES pods(id) ON DELETE CASCADE,
@@ -2214,10 +2215,10 @@ CREATE TABLE pod_verifications (
 );
 CREATE INDEX idx_pod_verifications_pod ON pod_verifications(pod_id);
 
--- 008_add_pod_verification_field.sql
+-- 20260214120004_add_pod_verification_field/up.sql
 ALTER TABLE pods ADD COLUMN verification TEXT NOT NULL DEFAULT 'unverified';
 
--- 009_create_user_preferences.sql
+-- 20260214120005_create_user_preferences/up.sql
 CREATE TABLE user_preferences (
     user_id         TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     preferred_pods  TEXT[] NOT NULL DEFAULT '{}',
@@ -2228,7 +2229,7 @@ CREATE TABLE user_preferences (
 ### Pod Database (new migrations)
 
 ```sql
--- 012_create_attachments.sql
+-- 20260214120000_create_attachments/up.sql
 CREATE TABLE attachments (
     id              TEXT PRIMARY KEY,
     message_id      BIGINT REFERENCES messages(id) ON DELETE CASCADE,
@@ -2244,15 +2245,15 @@ CREATE TABLE attachments (
 );
 CREATE INDEX idx_attachments_message ON attachments(message_id);
 
--- 013_add_channel_thread_fields.sql
+-- 20260214120001_add_channel_thread_fields/up.sql
 ALTER TABLE channels ADD COLUMN thread_metadata JSONB;
 -- thread_metadata: { parent_message_id, member_count, message_count, auto_archive_seconds, last_activity_at }
 
--- 014_add_channel_voice_fields.sql
+-- 20260214120002_add_channel_voice_fields/up.sql
 ALTER TABLE channels ADD COLUMN user_limit INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE channels ADD COLUMN bitrate INTEGER NOT NULL DEFAULT 64000;
 
--- 015_create_voice_sessions.sql
+-- 20260214120003_create_voice_sessions/up.sql
 CREATE TABLE voice_sessions (
     id              TEXT PRIMARY KEY,
     channel_id      TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -2267,7 +2268,7 @@ CREATE TABLE voice_sessions (
 CREATE INDEX idx_voice_channel ON voice_sessions(channel_id);
 CREATE INDEX idx_voice_user ON voice_sessions(user_id);
 
--- 016_create_read_states.sql
+-- 20260214120004_create_read_states/up.sql
 CREATE TABLE read_states (
     user_id         TEXT NOT NULL REFERENCES pod_users(id),
     channel_id      TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -2277,7 +2278,7 @@ CREATE TABLE read_states (
     PRIMARY KEY (user_id, channel_id)
 );
 
--- 017_create_pod_roles.sql
+-- 20260214120005_create_pod_roles/up.sql
 CREATE TABLE pod_roles (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -2295,7 +2296,7 @@ CREATE TABLE pod_member_roles (
 );
 CREATE INDEX idx_pod_member_roles_user ON pod_member_roles(user_id);
 
--- 018_create_pod_bans.sql
+-- 20260214120006_create_pod_bans/up.sql
 CREATE TABLE pod_bans (
     user_id         TEXT PRIMARY KEY REFERENCES pod_users(id),
     banned_by       TEXT NOT NULL REFERENCES pod_users(id),

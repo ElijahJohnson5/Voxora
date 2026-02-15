@@ -1,3 +1,4 @@
+pub mod audit_log;
 pub mod ban;
 pub mod channel;
 pub mod community;

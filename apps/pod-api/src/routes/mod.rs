@@ -6,6 +6,7 @@ pub mod health;
 pub mod invites;
 pub mod members;
 pub mod messages;
+pub mod pins;
 pub mod roles;
 
 use axum::Router;
@@ -27,7 +28,8 @@ pub fn router() -> Router<AppState> {
                 .merge(invites::router())
                 .merge(members::router())
                 .merge(roles::router())
-                .merge(bans::router()),
+                .merge(bans::router())
+                .merge(pins::router()),
         )
 }
 
@@ -92,6 +94,10 @@ impl Modify for SecurityAddon {
         // Bans
         bans::ban_member,
         bans::unban_member,
+        // Pins
+        pins::pin_message,
+        pins::unpin_message,
+        pins::list_pins,
     ),
     components(
         schemas(
@@ -145,6 +151,7 @@ impl Modify for SecurityAddon {
         (name = "Roles", description = "Role management"),
         (name = "Invites", description = "Invite management"),
         (name = "Bans", description = "Ban management"),
+        (name = "Pins", description = "Message pinning"),
     )
 )]
 pub struct ApiDoc;

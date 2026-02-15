@@ -11,7 +11,7 @@ async fn setup_with_message(
     config: &pod_api::config::Config,
     user_id: &str,
     username: &str,
-) -> (String, String, i64, String) {
+) -> (String, String, String, String) {
     let token = common::login_test_user(server, keys, config, user_id, username).await;
 
     // Create community.
@@ -39,7 +39,7 @@ async fn setup_with_message(
         .await;
     msg_resp.assert_status(StatusCode::CREATED);
     let msg: serde_json::Value = msg_resp.json();
-    let message_id = msg["id"].as_i64().unwrap();
+    let message_id = msg["id"].as_str().unwrap().to_string();
 
     (community_id, channel_id, message_id, token)
 }
@@ -66,7 +66,7 @@ async fn add_reaction_succeeds() {
 
     resp.assert_status_ok();
     let body: serde_json::Value = resp.json();
-    assert_eq!(body["message_id"], message_id);
+    assert_eq!(body["message_id"].as_str().unwrap(), message_id);
     assert_eq!(body["user_id"], user_id);
     assert!(body["created_at"].is_string());
 

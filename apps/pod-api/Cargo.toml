@@ -12,7 +12,7 @@ dashmap = "6"
 axum = { version = "0.8", features = ["macros", "ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "2", features = ["postgres", "chrono"] }
+diesel = { version = "2", features = ["postgres", "chrono", "serde_json"] }
 diesel-async = { version = "0.5", features = ["postgres", "deadpool", "async-connection-wrapper"] }
 diesel_migrations = "2"
 dotenvy = "0.15"

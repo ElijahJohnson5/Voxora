@@ -137,4 +137,5 @@ impl EventName {
     pub const MEMBER_UPDATE: &'static str = "MEMBER_UPDATE";
     pub const RESUMED: &'static str = "RESUMED";
     pub const TYPING_START: &'static str = "TYPING_START";
+    pub const CHANNEL_PINS_UPDATE: &'static str = "CHANNEL_PINS_UPDATE";
 }
