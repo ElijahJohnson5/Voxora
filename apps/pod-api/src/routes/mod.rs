@@ -8,6 +8,7 @@ pub mod invites;
 pub mod members;
 pub mod messages;
 pub mod pins;
+pub mod read_states;
 pub mod roles;
 
 use axum::Router;
@@ -31,6 +32,7 @@ pub fn router() -> Router<AppState> {
                 .merge(roles::router())
                 .merge(bans::router())
                 .merge(pins::router())
+                .merge(read_states::router())
                 .merge(audit_log::router()),
         )
 }
@@ -100,6 +102,9 @@ impl Modify for SecurityAddon {
         pins::pin_message,
         pins::unpin_message,
         pins::list_pins,
+        // Read States
+        read_states::get_unread_counts,
+        read_states::mark_as_read,
         // Audit Log
         audit_log::list_audit_log,
     ),
@@ -141,6 +146,9 @@ impl Modify for SecurityAddon {
             invites::CreateInviteRequest,
             invites::InviteInfoResponse,
             bans::BanRequest,
+            read_states::UnreadCountsResponse,
+            read_states::ChannelUnreadEntry,
+            read_states::MarkAsReadRequest,
             audit_log::AuditLogResponse,
             crate::models::audit_log::AuditLogEntry,
         )
@@ -158,6 +166,7 @@ impl Modify for SecurityAddon {
         (name = "Invites", description = "Invite management"),
         (name = "Bans", description = "Ban management"),
         (name = "Pins", description = "Message pinning"),
+        (name = "Read States", description = "Read state and unread counts"),
         (name = "Audit Log", description = "Audit log"),
     )
 )]

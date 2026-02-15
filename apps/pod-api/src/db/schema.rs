@@ -129,6 +129,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    read_states (user_id, channel_id) {
+        user_id -> Text,
+        channel_id -> Text,
+        community_id -> Text,
+        last_read_id -> Int8,
+        mention_count -> Int4,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     audit_log (id) {
         id -> Text,
         community_id -> Text,
@@ -154,6 +165,9 @@ diesel::joinable!(reactions -> pod_users (user_id));
 diesel::joinable!(invites -> communities (community_id));
 diesel::joinable!(invites -> channels (channel_id));
 diesel::joinable!(bans -> communities (community_id));
+diesel::joinable!(read_states -> channels (channel_id));
+diesel::joinable!(read_states -> communities (community_id));
+diesel::joinable!(read_states -> pod_users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     pod_users,
@@ -166,5 +180,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     reactions,
     invites,
     bans,
+    read_states,
     audit_log,
 );

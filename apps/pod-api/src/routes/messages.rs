@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
-use crate::db::schema::{channels, messages, reactions};
+use crate::db::schema::{channels, community_members, messages, reactions, read_states};
 use crate::error::{ApiError, ApiErrorBody, FieldError};
 use crate::gateway::events::EventName;
 use crate::gateway::fanout::BroadcastPayload;
@@ -19,6 +19,7 @@ use crate::models::audit_log;
 use crate::models::channel::Channel;
 use crate::models::message::{Message, NewMessage, UpdateMessage};
 use crate::models::reaction::{NewReaction, Reaction};
+use crate::models::read_state::NewReadState;
 use crate::permissions;
 use crate::AppState;
 
@@ -173,7 +174,64 @@ pub async fn send_message(
         data: serde_json::to_value(&message).unwrap(),
     });
 
+    // Mention detection: parse <@user_id> patterns and increment mention_count.
+    let mentioned_ids = parse_mentions(content);
+    if !mentioned_ids.is_empty() {
+        // Filter to only community members (excluding the author).
+        let valid_members: Vec<String> = diesel_async::RunQueryDsl::load(
+            community_members::table
+                .filter(community_members::community_id.eq(&channel.community_id))
+                .filter(community_members::user_id.eq_any(&mentioned_ids))
+                .filter(community_members::user_id.ne(&user_id))
+                .select(community_members::user_id),
+            &mut conn,
+        )
+        .await
+        .unwrap_or_default();
+
+        for mentioned_user_id in &valid_members {
+            let _ = diesel_async::RunQueryDsl::execute(
+                diesel::insert_into(read_states::table)
+                    .values(NewReadState {
+                        user_id: mentioned_user_id,
+                        channel_id: &channel_id,
+                        community_id: &channel.community_id,
+                        last_read_id: 0,
+                        mention_count: 1,
+                    })
+                    .on_conflict((read_states::user_id, read_states::channel_id))
+                    .do_update()
+                    .set((
+                        read_states::mention_count.eq(read_states::mention_count + 1),
+                        read_states::community_id.eq(&channel.community_id),
+                        read_states::updated_at.eq(diesel::dsl::now),
+                    )),
+                &mut conn,
+            )
+            .await;
+        }
+    }
+
     Ok((StatusCode::CREATED, Json(message)))
+}
+
+/// Extract user IDs from `<@user_id>` mention patterns in message content.
+fn parse_mentions(content: &str) -> Vec<String> {
+    let mut mentions = Vec::new();
+    let mut search_from = 0;
+    while let Some(start) = content[search_from..].find("<@") {
+        let abs_start = search_from + start + 2; // skip "<@"
+        if let Some(end) = content[abs_start..].find('>') {
+            let user_id = &content[abs_start..abs_start + end];
+            if !user_id.is_empty() && !mentions.contains(&user_id.to_string()) {
+                mentions.push(user_id.to_string());
+            }
+            search_from = abs_start + end + 1;
+        } else {
+            break;
+        }
+    }
+    mentions
 }
 
 // ---------------------------------------------------------------------------
