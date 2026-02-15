@@ -1,6 +1,6 @@
 //! WebSocket upgrade handler and per-connection event loop.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,8 +18,9 @@ use crate::db::schema::channels;
 use crate::AppState;
 
 use super::events::{
-    ClientMessage, EventName, GatewayMessage, HeartbeatPayload, IdentifyPayload, ResumePayload,
-    TypingPayload, OP_DISPATCH, OP_HEARTBEAT, OP_IDENTIFY, OP_RESUME,
+    ClientMessage, EventName, GatewayMessage, HeartbeatPayload, IdentifyPayload,
+    PresenceUpdatePayload, ResumePayload, TypingPayload, OP_DISPATCH, OP_HEARTBEAT, OP_IDENTIFY,
+    OP_PRESENCE_UPDATE, OP_RESUME,
 };
 use super::fanout::BroadcastPayload;
 use super::handler::{handle_identify, HEARTBEAT_INTERVAL_MS};
@@ -148,6 +149,22 @@ async fn handle_identify_path(
         "gateway session established"
     );
 
+    // Register presence (may broadcast online to other users).
+    let prev_status = state.presence.set_online(&session.user_id, &session.communities);
+    if prev_status.is_some() {
+        // User just came online — broadcast to all their communities.
+        for community_id in &session.communities {
+            state.broadcast.dispatch(BroadcastPayload {
+                community_id: community_id.clone(),
+                event_name: EventName::PRESENCE_UPDATE.to_string(),
+                data: serde_json::json!({
+                    "user_id": session.user_id,
+                    "status": "online",
+                }),
+            });
+        }
+    }
+
     // Send READY.
     let ready_json = serde_json::to_string(&ready_msg).unwrap();
     if ws_tx.send(Message::Text(ready_json.into())).await.is_err() {
@@ -158,6 +175,9 @@ async fn handle_identify_path(
     let session = Arc::new(session);
     let broadcast_rx = state.broadcast.subscribe();
     run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, state).await;
+
+    // Deregister presence session (sweeper handles grace period).
+    state.presence.remove_session(&session.user_id, &session.communities);
 
     // Mark session as disconnected for resume support.
     state.sessions.mark_disconnected(&session.session_id);
@@ -195,6 +215,21 @@ async fn handle_resume_path(
         "gateway session resumed"
     );
 
+    // Re-register presence on resume (clears any pending disconnect timer).
+    let prev_status = state.presence.set_online(&session.user_id, &session.communities);
+    if prev_status.is_some() {
+        for community_id in &session.communities {
+            state.broadcast.dispatch(BroadcastPayload {
+                community_id: community_id.clone(),
+                event_name: EventName::PRESENCE_UPDATE.to_string(),
+                data: serde_json::json!({
+                    "user_id": session.user_id,
+                    "status": "online",
+                }),
+            });
+        }
+    }
+
     // Subscribe to broadcasts before sending replayed events so we don't miss
     // anything that arrives concurrently.
     let broadcast_rx = state.broadcast.subscribe();
@@ -220,6 +255,9 @@ async fn handle_resume_path(
     // Enter the normal event loop.
     run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, state).await;
 
+    // Deregister presence session (sweeper handles grace period).
+    state.presence.remove_session(&session.user_id, &session.communities);
+
     // Mark session as disconnected again.
     state.sessions.mark_disconnected(&session.session_id);
 
@@ -232,6 +270,10 @@ async fn handle_resume_path(
 
 /// Rate limit: at most one TYPING event per 5 seconds per channel.
 const TYPING_RATE_LIMIT_SECS: u64 = 5;
+
+/// Rate limit: at most 5 presence updates per 60 seconds.
+const PRESENCE_RATE_LIMIT_MAX: usize = 5;
+const PRESENCE_RATE_LIMIT_WINDOW_SECS: u64 = 60;
 
 /// Main session event loop: read client messages, forward broadcasts, enforce heartbeat.
 async fn run_session(
@@ -251,6 +293,9 @@ async fn run_session(
 
     // Per-channel typing rate limit state.
     let mut typing_last: HashMap<String, Instant> = HashMap::new();
+
+    // Sliding window rate limit for presence updates.
+    let mut presence_timestamps: VecDeque<Instant> = VecDeque::new();
 
     loop {
         tokio::select! {
@@ -333,6 +378,45 @@ async fn run_session(
                                     _ => continue, // ignore unknown client events
                                 }
                             }
+                            OP_PRESENCE_UPDATE => {
+                                let payload: PresenceUpdatePayload = match serde_json::from_value(client_msg.d) {
+                                    Ok(p) => p,
+                                    Err(_) => continue,
+                                };
+
+                                // Only allow client-set statuses.
+                                match payload.status.as_str() {
+                                    "online" | "idle" | "dnd" => {}
+                                    _ => continue,
+                                }
+
+                                // Sliding window rate limit: max 5 per 60s.
+                                let now = Instant::now();
+                                let window = Duration::from_secs(PRESENCE_RATE_LIMIT_WINDOW_SECS);
+                                while presence_timestamps.front().map_or(false, |t| now.duration_since(*t) > window) {
+                                    presence_timestamps.pop_front();
+                                }
+                                if presence_timestamps.len() >= PRESENCE_RATE_LIMIT_MAX {
+                                    continue; // silently drop
+                                }
+                                presence_timestamps.push_back(now);
+
+                                // Update presence registry.
+                                let changed = state.presence.set_status(&session.user_id, &payload.status);
+                                if changed.is_some() {
+                                    // Broadcast to all communities the user belongs to.
+                                    for community_id in &session.communities {
+                                        state.broadcast.dispatch(BroadcastPayload {
+                                            community_id: community_id.clone(),
+                                            event_name: EventName::PRESENCE_UPDATE.to_string(),
+                                            data: serde_json::json!({
+                                                "user_id": session.user_id,
+                                                "status": payload.status,
+                                            }),
+                                        });
+                                    }
+                                }
+                            }
                             OP_IDENTIFY => {
                                 // Already identified.
                                 let _ = send_close(&mut ws_tx, CLOSE_UNKNOWN_ERROR, "Already identified").await;
@@ -370,12 +454,17 @@ async fn run_session(
                         }
 
                         // Write to replay buffer for resume support.
-                        registry.append_event(
-                            &session.session_id,
-                            seq,
-                            &payload.event_name,
-                            payload.data.clone(),
-                        );
+                        // Skip ephemeral events (presence, typing) — they shouldn't be replayed.
+                        if payload.event_name != EventName::PRESENCE_UPDATE
+                            && payload.event_name != EventName::TYPING_START
+                        {
+                            registry.append_event(
+                                &session.session_id,
+                                seq,
+                                &payload.event_name,
+                                payload.data.clone(),
+                            );
+                        }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(

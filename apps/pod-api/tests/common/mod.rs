@@ -178,6 +178,7 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
     let broadcast = Arc::new(GatewayBroadcast::new());
 
     let sessions = Arc::new(SessionRegistry::new());
+    let presence = Arc::new(pod_api::gateway::presence::PresenceRegistry::new());
 
     let state = AppState {
         db,
@@ -187,6 +188,7 @@ pub async fn test_state() -> (AppState, TestSigningKeys) {
         snowflake,
         broadcast,
         sessions,
+        presence,
     };
 
     (state, signing_keys)

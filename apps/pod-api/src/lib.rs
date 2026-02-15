@@ -14,6 +14,7 @@ use config::Config;
 use db::kv::KeyValueStore;
 use db::pool::DbPool;
 use gateway::fanout::GatewayBroadcast;
+use gateway::presence::PresenceRegistry;
 use gateway::registry::SessionRegistry;
 use voxora_common::SnowflakeGenerator;
 
@@ -27,4 +28,5 @@ pub struct AppState {
     pub snowflake: Arc<SnowflakeGenerator>,
     pub broadcast: Arc<GatewayBroadcast>,
     pub sessions: Arc<SessionRegistry>,
+    pub presence: Arc<PresenceRegistry>,
 }

@@ -14,6 +14,7 @@ use pod_api::auth::jwks::JwksClient;
 use pod_api::config::Config;
 use pod_api::db::kv::{KeyValueStore, MemoryStore};
 use pod_api::gateway::fanout::GatewayBroadcast;
+use pod_api::gateway::presence::PresenceRegistry;
 use pod_api::gateway::registry::SessionRegistry;
 use pod_api::routes::ApiDoc;
 use pod_api::AppState;
@@ -50,6 +51,7 @@ async fn main() {
     let snowflake = Arc::new(SnowflakeGenerator::new(0));
     let broadcast = Arc::new(GatewayBroadcast::new());
     let sessions = Arc::new(SessionRegistry::new());
+    let presence = Arc::new(PresenceRegistry::new());
 
     // Spawn background task to clean up expired gateway sessions (every 60s).
     let cleanup_sessions = sessions.clone();
@@ -64,6 +66,34 @@ async fn main() {
         }
     });
 
+    // Spawn background task to sweep expired presence entries (every 5s).
+    {
+        let sweep_presence = presence.clone();
+        let sweep_broadcast = broadcast.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            let grace = Duration::from_secs(30);
+            loop {
+                interval.tick().await;
+                let gone_offline = sweep_presence.sweep_offline(grace);
+                for user in gone_offline {
+                    for community_id in &user.communities {
+                        sweep_broadcast.dispatch(
+                            pod_api::gateway::fanout::BroadcastPayload {
+                                community_id: community_id.clone(),
+                                event_name: "PRESENCE_UPDATE".to_string(),
+                                data: serde_json::json!({
+                                    "user_id": user.user_id,
+                                    "status": "offline",
+                                }),
+                            },
+                        );
+                    }
+                }
+            }
+        });
+    }
+
     let state = AppState {
         db,
         kv,
@@ -72,6 +102,7 @@ async fn main() {
         snowflake,
         broadcast,
         sessions,
+        presence,
     };
 
     let cors = CorsLayer::new()

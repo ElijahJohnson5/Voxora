@@ -13,6 +13,7 @@ pub const OP_IDENTIFY: u8 = 2;
 pub const OP_RESUME: u8 = 3;
 pub const OP_HEARTBEAT_ACK: u8 = 6;
 pub const OP_RECONNECT: u8 = 7;
+pub const OP_PRESENCE_UPDATE: u8 = 9;
 
 // ---------------------------------------------------------------------------
 // Server → Client message
@@ -115,6 +116,15 @@ pub struct TypingPayload {
 }
 
 // ---------------------------------------------------------------------------
+// PRESENCE_UPDATE payload
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct PresenceUpdatePayload {
+    pub status: String,
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch event types
 // ---------------------------------------------------------------------------
 
@@ -138,4 +148,5 @@ impl EventName {
     pub const RESUMED: &'static str = "RESUMED";
     pub const TYPING_START: &'static str = "TYPING_START";
     pub const CHANNEL_PINS_UPDATE: &'static str = "CHANNEL_PINS_UPDATE";
+    pub const PRESENCE_UPDATE: &'static str = "PRESENCE_UPDATE";
 }

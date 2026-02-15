@@ -114,6 +114,20 @@ pub async fn handle_identify(
         }
     }
 
+    // Gather online presences across all communities (deduplicated by user_id).
+    let mut seen_users = HashSet::new();
+    let mut presences: Vec<Value> = Vec::new();
+    for community_id in &community_ids {
+        for (uid, status) in state.presence.get_online_users(community_id) {
+            if seen_users.insert(uid.clone()) {
+                presences.push(serde_json::json!({
+                    "user_id": uid,
+                    "status": status,
+                }));
+            }
+        }
+    }
+
     let session_id = voxora_common::id::prefixed_ulid("gw_");
 
     let ready_data = serde_json::json!({
@@ -125,6 +139,7 @@ pub async fn handle_identify(
             "avatar_url": user.avatar_url,
         },
         "communities": community_data,
+        "presences": presences,
         "heartbeat_interval": HEARTBEAT_INTERVAL_MS,
     });
 
