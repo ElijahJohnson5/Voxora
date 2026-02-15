@@ -11,6 +11,12 @@ pub struct Config {
     pub signing_key_seed: String,
     /// Port the HTTP server binds to.
     pub port: u16,
+    /// Shared secret for coturn REST API credential generation.
+    pub turn_shared_secret: String,
+    /// STUN server URLs.
+    pub stun_urls: Vec<String>,
+    /// TURN server URLs.
+    pub turn_urls: Vec<String>,
 }
 
 impl Config {
@@ -28,10 +34,26 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4001),
+            turn_shared_secret: required_var("TURN_SHARED_SECRET"),
+            stun_urls: csv_var("STUN_URLS", vec!["stun:localhost:3478".to_string()]),
+            turn_urls: csv_var(
+                "TURN_URLS",
+                vec![
+                    "turn:localhost:3478?transport=udp".to_string(),
+                    "turn:localhost:3478?transport=tcp".to_string(),
+                ],
+            ),
         }
     }
 }
 
 fn required_var(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} env var is required"))
+}
+
+fn csv_var(name: &str, default: Vec<String>) -> Vec<String> {
+    match std::env::var(name) {
+        Ok(val) if !val.is_empty() => val.split(',').map(|s| s.trim().to_string()).collect(),
+        _ => default,
+    }
 }

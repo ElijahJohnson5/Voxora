@@ -2,6 +2,7 @@ pub mod health;
 pub mod oidc;
 pub mod pods;
 pub mod sia;
+pub mod turn;
 pub mod users;
 
 use axum::Router;
@@ -17,7 +18,10 @@ pub fn router() -> Router<AppState> {
         .merge(oidc::router())
         .nest(
             "/api/v1",
-            users::router().merge(sia::router()).merge(pods::router()),
+            users::router()
+                .merge(sia::router())
+                .merge(pods::router())
+                .merge(turn::router()),
         )
 }
 
@@ -62,6 +66,8 @@ impl Modify for SecurityAddon {
         pods::heartbeat,
         pods::list_pods,
         pods::get_pod,
+        // TURN
+        turn::turn_credentials,
     ),
     components(
         schemas(
@@ -97,6 +103,8 @@ impl Modify for SecurityAddon {
             pods::HeartbeatResponse,
             pods::ListPodsQuery,
             pods::ListPodsResponse,
+            turn::TurnCredentialsResponse,
+            turn::IceServer,
         )
     ),
     modifiers(&SecurityAddon),
@@ -106,6 +114,7 @@ impl Modify for SecurityAddon {
         (name = "Users", description = "User management"),
         (name = "SIA", description = "Signed Identity Assertions"),
         (name = "Pods", description = "Pod registration and discovery"),
+        (name = "TURN", description = "TURN credential provisioning"),
     )
 )]
 pub struct ApiDoc;

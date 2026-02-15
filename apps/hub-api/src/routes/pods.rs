@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::pod::PodClient;
 use crate::auth::tokens;
 use crate::db::schema::pods;
 use crate::error::{ApiError, ApiErrorBody, FieldError};
@@ -20,7 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/pods/register", post(register_pod))
         .route("/pods", get(list_pods))
         .route("/pods/{pod_id}", get(get_pod))
-        .route("/pods/{pod_id}/heartbeat", post(heartbeat))
+        .route("/pods/heartbeat", post(heartbeat))
 }
 
 // =========================================================================
@@ -207,61 +208,31 @@ pub struct HeartbeatResponse {
     pub recorded_at: String,
 }
 
-/// `POST /api/v1/pods/{pod_id}/heartbeat` — Record a Pod heartbeat.
+/// `POST /api/v1/pods/heartbeat` — Record a Pod heartbeat.
 ///
-/// Authenticated via the Pod's `client_id`/`client_secret` pair sent as a
-/// Bearer token (the `client_secret` value). For Phase 1 we look the pod up
-/// by its id and verify the secret from the `Authorization` header.
+/// Authenticated via the Pod's `client_secret` as a Bearer token.
+/// The pod is identified by the token, so no path parameter is needed.
 #[utoipa::path(
     post,
-    path = "/api/v1/pods/{pod_id}/heartbeat",
+    path = "/api/v1/pods/heartbeat",
     tag = "Pods",
-    params(
-        ("pod_id" = String, Path, description = "Pod ID"),
-    ),
+    security(("bearer" = [])),
     request_body = HeartbeatRequest,
     responses(
         (status = 200, description = "Heartbeat recorded", body = HeartbeatResponse),
         (status = 401, description = "Invalid credentials", body = ApiErrorBody),
-        (status = 404, description = "Pod not found", body = ApiErrorBody),
     ),
 )]
 pub async fn heartbeat(
     State(state): State<AppState>,
-    Path(pod_id): Path<String>,
-    headers: axum::http::HeaderMap,
+    pod_client: PodClient,
     Json(body): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, ApiError> {
-    // Extract the Bearer token (client_secret).
-    let auth_header = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| ApiError::unauthorized("Missing Authorization header"))?;
-
-    let provided_secret = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| ApiError::unauthorized("Invalid Authorization header format"))?;
-
+    let pod = &pod_client.pod;
+    let now = Utc::now();
     let mut conn = state.db.get().await?;
 
-    // Look up the pod and verify the secret.
-    let pod: Pod = pods::table
-        .find(&pod_id)
-        .select(Pod::as_select())
-        .first(&mut conn)
-        .await
-        .optional()
-        .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::not_found("Pod not found"))?;
-
-    if pod.client_secret != provided_secret {
-        return Err(ApiError::unauthorized("Invalid client credentials"));
-    }
-
-    // Update heartbeat fields.
-    let now = Utc::now();
-
-    diesel::update(pods::table.find(&pod_id))
+    diesel::update(pods::table.find(&pod.id))
         .set((
             pods::last_heartbeat.eq(now),
             pods::updated_at.eq(now),
@@ -274,7 +245,7 @@ pub async fn heartbeat(
         .await
         .map_err(ApiError::from)?;
 
-    tracing::debug!(pod_id = %pod_id, "heartbeat recorded");
+    tracing::debug!(pod_id = %pod.id, "heartbeat recorded");
 
     Ok(Json(HeartbeatResponse {
         ok: true,

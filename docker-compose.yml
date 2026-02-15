@@ -16,5 +16,17 @@ services:
     ports:
       - "6379:6379"
 
+  turn:
+    image: coturn/coturn:latest
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+    command:
+      - "--use-auth-secret"
+      - "--static-auth-secret=dev-turn-secret-do-not-use-in-production"
+      - "--realm=voxora.local"
+      - "--no-tls"
+      - "--no-dtls"
+
 volumes:
   db-data:

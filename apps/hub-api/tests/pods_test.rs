@@ -241,7 +241,7 @@ async fn get_pod_returns_404_for_missing() {
 }
 
 // =========================================================================
-// POST /api/v1/pods/{pod_id}/heartbeat — happy path
+// POST /api/v1/pods/heartbeat — happy path
 // =========================================================================
 
 #[tokio::test]
@@ -266,7 +266,7 @@ async fn heartbeat_updates_pod() {
     let server = TestServer::new(app).unwrap();
 
     let resp = server
-        .post(&format!("/api/v1/pods/{pod_id}/heartbeat"))
+        .post("/api/v1/pods/heartbeat")
         .authorization_bearer(&secret)
         .json(&serde_json::json!({
             "member_count": 42,
@@ -306,58 +306,32 @@ async fn heartbeat_updates_pod() {
 }
 
 // =========================================================================
-// POST /api/v1/pods/{pod_id}/heartbeat — auth failures
+// POST /api/v1/pods/heartbeat — auth failures
 // =========================================================================
 
 #[tokio::test]
 async fn heartbeat_rejects_missing_auth() {
-    let (app, state) = common::test_app().await;
-    let user = common::create_test_user(&state.db, "hb_noauth_pw_12").await;
-    let pod_id = common::create_test_pod(&state.db, &user.id).await;
-
+    let (app, _) = common::test_app().await;
     let server = TestServer::new(app).unwrap();
 
     let resp = server
-        .post(&format!("/api/v1/pods/{pod_id}/heartbeat"))
+        .post("/api/v1/pods/heartbeat")
         .json(&serde_json::json!({ "member_count": 1 }))
         .await;
 
     resp.assert_status(StatusCode::UNAUTHORIZED);
-
-    common::cleanup_test_pod(&state.db, &pod_id).await;
-    common::cleanup_test_user(&state.db, &user.id).await;
 }
 
 #[tokio::test]
 async fn heartbeat_rejects_wrong_secret() {
-    let (app, state) = common::test_app().await;
-    let user = common::create_test_user(&state.db, "hb_wrong_pw_123").await;
-    let pod_id = common::create_test_pod(&state.db, &user.id).await;
-
+    let (app, _) = common::test_app().await;
     let server = TestServer::new(app).unwrap();
 
     let resp = server
-        .post(&format!("/api/v1/pods/{pod_id}/heartbeat"))
+        .post("/api/v1/pods/heartbeat")
         .authorization_bearer("vxs_wrong_secret")
         .json(&serde_json::json!({ "member_count": 1 }))
         .await;
 
     resp.assert_status(StatusCode::UNAUTHORIZED);
-
-    common::cleanup_test_pod(&state.db, &pod_id).await;
-    common::cleanup_test_user(&state.db, &user.id).await;
-}
-
-#[tokio::test]
-async fn heartbeat_returns_404_for_unknown_pod() {
-    let (app, _) = common::test_app().await;
-    let server = TestServer::new(app).unwrap();
-
-    let resp = server
-        .post("/api/v1/pods/pod_01NONEXISTENT000000000000/heartbeat")
-        .authorization_bearer("vxs_whatever")
-        .json(&serde_json::json!({ "member_count": 1 }))
-        .await;
-
-    resp.assert_status(StatusCode::NOT_FOUND);
 }
