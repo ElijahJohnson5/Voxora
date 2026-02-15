@@ -4,6 +4,9 @@ set -euo pipefail
 # Creates the voxora PostgreSQL role and the hub/pod databases.
 # Assumes a local PostgreSQL server is running and the current user
 # has superuser (or createdb/createrole) privileges.
+#
+# If you use Docker instead, `docker compose up -d` handles database
+# creation automatically via scripts/init-db.sql.
 
 PG_HOST="${PGHOST:-localhost}"
 PG_PORT="${PGPORT:-5432}"
