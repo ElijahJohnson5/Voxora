@@ -19,6 +19,8 @@ export const Opcode = {
   IDENTIFY: 2,
   /** Server → Client: heartbeat acknowledged */
   HEARTBEAT_ACK: 6,
+  /** Client → Server: presence update */
+  PRESENCE_UPDATE: 9,
 } as const;
 
 export type OpcodeValue = (typeof Opcode)[keyof typeof Opcode];
@@ -58,7 +60,12 @@ export interface TypingMessage {
   d: { channel_id: string };
 }
 
-export type ClientMessage = IdentifyMessage | HeartbeatMessage | TypingMessage;
+export interface PresenceUpdateMessage {
+  op: typeof Opcode.PRESENCE_UPDATE;
+  d: { status: string };
+}
+
+export type ClientMessage = IdentifyMessage | HeartbeatMessage | TypingMessage | PresenceUpdateMessage;
 
 // ---------------------------------------------------------------------------
 // Dispatch event names
@@ -80,6 +87,7 @@ export const DispatchEvent = {
   MEMBER_UPDATE: "MEMBER_UPDATE",
   TYPING_START: "TYPING_START",
   CHANNEL_PINS_UPDATE: "CHANNEL_PINS_UPDATE",
+  PRESENCE_UPDATE: "PRESENCE_UPDATE",
 } as const;
 
 export type DispatchEventName =
@@ -139,6 +147,7 @@ export interface ReadyPayload {
   user: GatewayUser;
   communities: GatewayCommunity[];
   heartbeat_interval: number;
+  presences?: { user_id: string; status: string }[];
 }
 
 export interface HeartbeatAckPayload {
@@ -223,6 +232,13 @@ export interface TypingStartPayload {
   timestamp: string;
 }
 
+// --- Presence events ---
+
+export interface PresenceUpdatePayload {
+  user_id: string;
+  status: string;
+}
+
 // --- Pin events ---
 
 export interface ChannelPinsUpdatePayload {
@@ -249,4 +265,5 @@ export interface DispatchPayloadMap {
   MEMBER_UPDATE: MemberPayload;
   TYPING_START: TypingStartPayload;
   CHANNEL_PINS_UPDATE: ChannelPinsUpdatePayload;
+  PRESENCE_UPDATE: PresenceUpdatePayload;
 }

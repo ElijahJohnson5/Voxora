@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { createFileRoute, Outlet, redirect, useMatch } from "@tanstack/react-router";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MemberList } from "@/components/layout/member-list";
 import { Header } from "@/components/layout/header";
 import { useAuthStore } from "@/stores/auth";
+import { initPresenceIdle } from "@/lib/gateway/presence-idle";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: () => {
@@ -14,6 +16,10 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
+  useEffect(() => {
+    initPresenceIdle();
+  }, []);
+
   const channelMatch = useMatch({
     from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
     shouldThrow: false,

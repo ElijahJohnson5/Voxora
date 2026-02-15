@@ -6,13 +6,24 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
 import { usePodStore } from "@/stores/pod";
 import { useCommunityStore } from "@/stores/communities";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { usePresenceStore, type PresenceStatus } from "@/stores/presence";
+import { Avatar, AvatarFallback, AvatarImage, AvatarBadge } from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -20,6 +31,20 @@ import {
   CreateCommunityDialog,
   JoinInviteDialog,
 } from "@/components/communities/community-dialogs";
+import { setManualPresenceStatus } from "@/lib/gateway/presence-idle";
+
+const STATUS_OPTIONS: { value: PresenceStatus; label: string; color: string }[] = [
+  { value: "online", label: "Online", color: "bg-green-500" },
+  { value: "idle", label: "Idle", color: "bg-yellow-500" },
+  { value: "dnd", label: "Do Not Disturb", color: "bg-red-500" },
+];
+
+const STATUS_BADGE_COLOR: Record<PresenceStatus, string> = {
+  online: "bg-green-500",
+  idle: "bg-yellow-500",
+  dnd: "bg-red-500",
+  offline: "bg-gray-500",
+};
 
 function getInitials(name: string) {
   return name
@@ -56,6 +81,19 @@ export function Sidebar() {
     shouldThrow: false,
   });
   const activeChannelId = channelMatch?.params.channelId ?? null;
+
+  const presenceByPod = usePresenceStore((s) => s.byPod);
+  const updateOwnPresence = usePresenceStore((s) => s.updateOwnPresence);
+
+  // Derive current user's presence from the first connected pod (they're all synced)
+  const myPresence: PresenceStatus = (() => {
+    if (!user) return "offline";
+    for (const pod of connectedPods) {
+      const status = presenceByPod[pod.podId]?.[user.id];
+      if (status) return status;
+    }
+    return "offline";
+  })();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -205,12 +243,9 @@ export function Sidebar() {
 
           <Separator className="w-8" />
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => navigate({ to: "/settings" })}
-                className="mb-3 flex items-center justify-center"
-              >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="mb-3 flex items-center justify-center">
                 <Avatar
                   className={cn(
                     "h-10 w-10 cursor-pointer transition-all hover:ring-2 hover:ring-primary",
@@ -226,11 +261,38 @@ export function Sidebar() {
                   <AvatarFallback className="text-xs font-medium">
                     {user ? getInitials(user.displayName) : "?"}
                   </AvatarFallback>
+                  <AvatarBadge className={STATUS_BADGE_COLOR[myPresence]} />
                 </Avatar>
               </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Settings</TooltipContent>
-          </Tooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="end">
+              <DropdownMenuLabel>
+                {user?.displayName ?? "User"}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup
+                value={myPresence}
+                onValueChange={(value) => {
+                  const status = value as PresenceStatus;
+                  setManualPresenceStatus(status);
+                  for (const pod of connectedPods) {
+                    updateOwnPresence(pod.podId, status);
+                  }
+                }}
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                    <span className={cn("inline-block h-2 w-2 rounded-full", opt.color)} />
+                    {opt.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => navigate({ to: "/settings" })}>
+                Settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </TooltipProvider>
 

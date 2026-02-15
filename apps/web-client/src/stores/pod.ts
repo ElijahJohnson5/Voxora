@@ -5,6 +5,7 @@ import { createPodClient } from "@/lib/api/pod-client";
 import type { components } from "@/lib/api/pod";
 import { useCommunityStore } from "@/stores/communities";
 import { useMessageStore } from "@/stores/messages";
+import { usePresenceStore } from "@/stores/presence";
 import { GatewayConnection } from "@/lib/gateway/connection";
 import { handleReady } from "@/lib/gateway/handler";
 
@@ -336,6 +337,7 @@ export const usePodStore = create<PodState>()(
         }
         useCommunityStore.getState().resetPod(podId);
         useMessageStore.getState().resetPod(podId);
+        usePresenceStore.getState().resetPod(podId);
         set((state) => {
           const next = { ...state.pods };
           delete next[podId];
@@ -358,6 +360,7 @@ export const usePodStore = create<PodState>()(
         gatewayMap.clear();
         useCommunityStore.getState().reset();
         useMessageStore.getState().reset();
+        usePresenceStore.getState().reset();
         set({ pods: {}, activePodId: null });
       },
 

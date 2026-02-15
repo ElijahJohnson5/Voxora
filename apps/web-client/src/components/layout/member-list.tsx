@@ -2,17 +2,45 @@ import { useState, useEffect, useMemo } from "react";
 import { useMatch } from "@tanstack/react-router";
 import { X, Users } from "lucide-react";
 import { useCommunityStore, type CommunityMember, type Role } from "@/stores/communities";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { usePresenceStore, type PresenceStatus } from "@/stores/presence";
+import { Avatar, AvatarFallback, AvatarImage, AvatarBadge } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+
+const STATUS_COLOR: Record<PresenceStatus, string> = {
+  online: "bg-green-500",
+  idle: "bg-yellow-500",
+  dnd: "bg-red-500",
+  offline: "bg-gray-500",
+};
+
+const STATUS_ORDER: Record<PresenceStatus, number> = {
+  online: 0,
+  idle: 1,
+  dnd: 2,
+  offline: 3,
+};
 
 interface MemberGroup {
   label: string;
   members: CommunityMember[];
 }
 
+function sortByPresence(
+  members: CommunityMember[],
+  presences: Record<string, PresenceStatus>,
+): CommunityMember[] {
+  return [...members].sort((a, b) => {
+    const sa = STATUS_ORDER[presences[a.user_id] ?? "offline"];
+    const sb = STATUS_ORDER[presences[b.user_id] ?? "offline"];
+    return sa - sb;
+  });
+}
+
 function groupMembersByRole(
   members: CommunityMember[],
   roles: Role[],
+  presences: Record<string, PresenceStatus>,
 ): MemberGroup[] {
   const nonDefaultRoles = roles.filter((r) => !r.is_default);
   const roleMap = new Map(nonDefaultRoles.map((r) => [r.id, r]));
@@ -45,12 +73,18 @@ function groupMembersByRole(
   for (const role of nonDefaultRoles) {
     const group = groups.get(role.id);
     if (group && group.length > 0) {
-      result.push({ label: `${role.name} — ${group.length}`, members: group });
+      result.push({
+        label: `${role.name} — ${group.length}`,
+        members: sortByPresence(group, presences),
+      });
     }
   }
 
   if (ungrouped.length > 0) {
-    result.push({ label: `Members — ${ungrouped.length}`, members: ungrouped });
+    result.push({
+      label: `Members — ${ungrouped.length}`,
+      members: sortByPresence(ungrouped, presences),
+    });
   }
 
   return result;
@@ -59,6 +93,7 @@ function groupMembersByRole(
 export function MemberList() {
   const [collapsed, setCollapsed] = useState(false);
   const { members, roles, fetchMembers } = useCommunityStore();
+  const presenceByPod = usePresenceStore((s) => s.byPod);
 
   const channelMatch = useMatch({
     from: "/_authenticated/pod/$podId/community/$communityId/channel/$channelId",
@@ -88,9 +123,14 @@ export function MemberList() {
     [podId, communityId, roles],
   );
 
+  const podPresences = useMemo(
+    () => (podId ? (presenceByPod[podId] ?? {}) : {}),
+    [podId, presenceByPod],
+  );
+
   const memberGroups = useMemo(
-    () => groupMembersByRole(memberList, roleList),
-    [memberList, roleList],
+    () => groupMembersByRole(memberList, roleList, podPresences),
+    [memberList, roleList, podPresences],
   );
 
   if (collapsed) {
@@ -132,16 +172,21 @@ export function MemberList() {
               {group.members.map((member) => {
                 const displayName = member.display_name ?? member.username;
                 const showNickname = member.nickname && member.nickname !== displayName;
+                const status: PresenceStatus = podPresences[member.user_id] ?? "offline";
                 return (
                   <div
                     key={member.user_id}
-                    className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent"
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent",
+                      status === "offline" && "opacity-50",
+                    )}
                   >
                     <Avatar className="h-7 w-7">
                       {member.avatar_url && <AvatarImage src={member.avatar_url} alt={displayName} />}
                       <AvatarFallback className="text-xs font-medium">
                         {displayName[0]?.toUpperCase() ?? "?"}
                       </AvatarFallback>
+                      <AvatarBadge className={STATUS_COLOR[status]} />
                     </Avatar>
                     <span className="truncate text-sm">
                       {displayName}

@@ -24,6 +24,7 @@ import {
 } from "@/stores/communities";
 import { useMessageStore } from "@/stores/messages";
 import { useTypingStore } from "@/stores/typing";
+import { usePresenceStore } from "@/stores/presence";
 import { usePinStore } from "@/stores/pins";
 
 /**
@@ -112,6 +113,16 @@ export function handleDispatch(
         );
       break;
 
+    // --- Presence ---
+    case "PRESENCE_UPDATE":
+      usePresenceStore
+        .getState()
+        .gatewayPresenceUpdate(
+          podId,
+          data as DispatchPayloadMap["PRESENCE_UPDATE"],
+        );
+      break;
+
     // --- Pins ---
     case "CHANNEL_PINS_UPDATE": {
       const pinsData = data as DispatchPayloadMap["CHANNEL_PINS_UPDATE"];
@@ -164,6 +175,9 @@ export function handleReady(payload: ReadyPayload, podId: string): void {
       loading: false,
     };
   });
+
+  // Hydrate presences from READY payload
+  usePresenceStore.getState().hydratePresences(podId, payload.presences ?? []);
 }
 
 // ---------------------------------------------------------------------------
