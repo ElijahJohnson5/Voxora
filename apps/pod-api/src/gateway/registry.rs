@@ -26,6 +26,7 @@ pub struct ReplayEntry {
 pub struct SessionEntry {
     pub session_id: String,
     pub user_id: String,
+    pub username: String,
     pub communities: HashSet<String>,
     pub seq: u64,
     pub replay_buffer: VecDeque<ReplayEntry>,
@@ -48,10 +49,11 @@ impl SessionRegistry {
     }
 
     /// Register a new session after IDENTIFY.
-    pub fn register(&self, session_id: String, user_id: String, communities: HashSet<String>) {
+    pub fn register(&self, session_id: String, user_id: String, username: String, communities: HashSet<String>) {
         let entry = SessionEntry {
             session_id: session_id.clone(),
             user_id,
+            username,
             communities,
             seq: 0,
             replay_buffer: VecDeque::new(),
@@ -132,10 +134,10 @@ impl SessionRegistry {
     pub fn get_session_info(
         &self,
         session_id: &str,
-    ) -> Option<(String, HashSet<String>, u64)> {
+    ) -> Option<(String, String, HashSet<String>, u64)> {
         let entry = self.sessions.get(session_id)?;
         let e = entry.lock();
-        Some((e.user_id.clone(), e.communities.clone(), e.seq))
+        Some((e.user_id.clone(), e.username.clone(), e.communities.clone(), e.seq))
     }
 
     /// Remove sessions that have been disconnected longer than the TTL.
@@ -163,15 +165,16 @@ mod tests {
         let session_id = "gw_test_session".to_string();
         let mut communities = HashSet::new();
         communities.insert("comm1".to_string());
-        registry.register(session_id.clone(), "user1".to_string(), communities);
+        registry.register(session_id.clone(), "user1".to_string(), "testuser".to_string(), communities);
         (registry, session_id)
     }
 
     #[test]
     fn register_and_get_session_info() {
         let (registry, session_id) = make_registry_with_session();
-        let (user_id, communities, seq) = registry.get_session_info(&session_id).unwrap();
+        let (user_id, username, communities, seq) = registry.get_session_info(&session_id).unwrap();
         assert_eq!(user_id, "user1");
+        assert_eq!(username, "testuser");
         assert!(communities.contains("comm1"));
         assert_eq!(seq, 0);
     }
@@ -263,8 +266,8 @@ mod tests {
         communities.insert("c".to_string());
 
         // Create two sessions.
-        registry.register("s1".to_string(), "u1".to_string(), communities.clone());
-        registry.register("s2".to_string(), "u2".to_string(), communities);
+        registry.register("s1".to_string(), "u1".to_string(), "user1".to_string(), communities.clone());
+        registry.register("s2".to_string(), "u2".to_string(), "user2".to_string(), communities);
 
         // Mark s1 as disconnected a long time ago.
         registry.mark_disconnected("s1");

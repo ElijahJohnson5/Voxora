@@ -128,12 +128,12 @@ pub async fn handle_identify(
         "heartbeat_interval": HEARTBEAT_INTERVAL_MS,
     });
 
-    let session = GatewaySession::new(session_id.clone(), user_id.clone(), community_set.clone());
+    let session = GatewaySession::new(session_id.clone(), user_id.clone(), user.username.clone(), community_set.clone());
     let seq = session.next_seq();
     let ready_msg = GatewayMessage::dispatch("READY", seq, ready_data);
 
     // Register the session in the registry for resume support.
-    state.sessions.register(session_id, user_id, community_set);
+    state.sessions.register(session_id, user_id, user.username.clone(), community_set);
 
     Ok((session, ready_msg))
 }

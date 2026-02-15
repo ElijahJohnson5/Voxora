@@ -25,7 +25,7 @@ pub async fn handle_resume(
         .ok_or("Invalid or expired token")?;
 
     // 2. Look up the session in the registry.
-    let (session_user_id, communities, seq) = state
+    let (session_user_id, username, communities, seq) = state
         .sessions
         .get_session_info(&payload.session_id)
         .ok_or("Session not found")?;
@@ -45,6 +45,7 @@ pub async fn handle_resume(
     let session = GatewaySession::with_seq(
         payload.session_id.clone(),
         session_user_id,
+        username,
         communities,
         seq,
     );

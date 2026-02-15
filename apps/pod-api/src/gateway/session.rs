@@ -9,6 +9,8 @@ pub struct GatewaySession {
     pub session_id: String,
     /// Authenticated user ID.
     pub user_id: String,
+    /// Authenticated username (cached at IDENTIFY time).
+    pub username: String,
     /// Community IDs this user is a member of (populated at IDENTIFY).
     pub communities: HashSet<String>,
     /// Monotonically increasing sequence number for dispatch events.
@@ -16,10 +18,11 @@ pub struct GatewaySession {
 }
 
 impl GatewaySession {
-    pub fn new(session_id: String, user_id: String, communities: HashSet<String>) -> Self {
+    pub fn new(session_id: String, user_id: String, username: String, communities: HashSet<String>) -> Self {
         Self {
             session_id,
             user_id,
+            username,
             communities,
             seq: AtomicU64::new(0),
         }
@@ -29,12 +32,14 @@ impl GatewaySession {
     pub fn with_seq(
         session_id: String,
         user_id: String,
+        username: String,
         communities: HashSet<String>,
         seq: u64,
     ) -> Self {
         Self {
             session_id,
             user_id,
+            username,
             communities,
             seq: AtomicU64::new(seq),
         }

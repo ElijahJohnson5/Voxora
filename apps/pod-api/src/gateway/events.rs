@@ -70,6 +70,8 @@ impl GatewayMessage {
 pub struct ClientMessage {
     pub op: u8,
     #[serde(default)]
+    pub t: Option<String>,
+    #[serde(default)]
     pub d: Value,
 }
 
@@ -104,6 +106,15 @@ pub struct HeartbeatPayload {
 }
 
 // ---------------------------------------------------------------------------
+// TYPING payload
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct TypingPayload {
+    pub channel_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch event types
 // ---------------------------------------------------------------------------
 
@@ -125,4 +136,5 @@ impl EventName {
     pub const MEMBER_LEAVE: &'static str = "MEMBER_LEAVE";
     pub const MEMBER_UPDATE: &'static str = "MEMBER_UPDATE";
     pub const RESUMED: &'static str = "RESUMED";
+    pub const TYPING_START: &'static str = "TYPING_START";
 }

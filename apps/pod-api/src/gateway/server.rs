@@ -1,26 +1,28 @@
 //! WebSocket upgrade handler and per-connection event loop.
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use diesel::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast;
 use tokio::time;
 
+use crate::db::schema::channels;
 use crate::AppState;
 
 use super::events::{
     ClientMessage, EventName, GatewayMessage, HeartbeatPayload, IdentifyPayload, ResumePayload,
-    OP_HEARTBEAT, OP_IDENTIFY, OP_RESUME,
+    TypingPayload, OP_DISPATCH, OP_HEARTBEAT, OP_IDENTIFY, OP_RESUME,
 };
 use super::fanout::BroadcastPayload;
 use super::handler::{handle_identify, HEARTBEAT_INTERVAL_MS};
-use super::registry::SessionRegistry;
 use super::resume::handle_resume;
 use super::session::GatewaySession;
 
@@ -155,11 +157,10 @@ async fn handle_identify_path(
     // Run the main event loop.
     let session = Arc::new(session);
     let broadcast_rx = state.broadcast.subscribe();
-    let registry = state.sessions.clone();
-    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, registry.clone()).await;
+    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, state).await;
 
     // Mark session as disconnected for resume support.
-    registry.mark_disconnected(&session.session_id);
+    state.sessions.mark_disconnected(&session.session_id);
 
     tracing::info!(
         session_id = %session.session_id,
@@ -217,11 +218,10 @@ async fn handle_resume_path(
     }
 
     // Enter the normal event loop.
-    let registry = state.sessions.clone();
-    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, registry.clone()).await;
+    run_session(session.clone(), ws_tx, ws_rx, broadcast_rx, state).await;
 
     // Mark session as disconnected again.
-    registry.mark_disconnected(&session.session_id);
+    state.sessions.mark_disconnected(&session.session_id);
 
     tracing::info!(
         session_id = %session.session_id,
@@ -230,19 +230,27 @@ async fn handle_resume_path(
     );
 }
 
+/// Rate limit: at most one TYPING event per 5 seconds per channel.
+const TYPING_RATE_LIMIT_SECS: u64 = 5;
+
 /// Main session event loop: read client messages, forward broadcasts, enforce heartbeat.
 async fn run_session(
     session: Arc<GatewaySession>,
     mut ws_tx: futures_util::stream::SplitSink<WebSocket, Message>,
     mut ws_rx: futures_util::stream::SplitStream<WebSocket>,
     mut broadcast_rx: broadcast::Receiver<Arc<BroadcastPayload>>,
-    registry: Arc<SessionRegistry>,
+    state: &AppState,
 ) {
+    let registry = &state.sessions;
+
     // Heartbeat deadline: client must heartbeat within 1.5× the interval.
     let heartbeat_deadline = Duration::from_millis(HEARTBEAT_INTERVAL_MS * 3 / 2);
     let mut heartbeat_timer = time::interval(heartbeat_deadline);
     heartbeat_timer.tick().await; // First tick fires immediately; skip it.
     let mut got_heartbeat = true;
+
+    // Per-channel typing rate limit state.
+    let mut typing_last: HashMap<String, Instant> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -267,6 +275,62 @@ async fn run_session(
                                 let json = serde_json::to_string(&ack).unwrap();
                                 if ws_tx.send(Message::Text(json.into())).await.is_err() {
                                     break;
+                                }
+                            }
+                            OP_DISPATCH => {
+                                match client_msg.t.as_deref() {
+                                    Some("TYPING") => {
+                                        let payload: TypingPayload = match serde_json::from_value(client_msg.d) {
+                                            Ok(p) => p,
+                                            Err(_) => continue,
+                                        };
+
+                                        // Rate limit: skip if last typing for this channel was <5s ago.
+                                        let now = Instant::now();
+                                        if let Some(last) = typing_last.get(&payload.channel_id) {
+                                            if now.duration_since(*last) < Duration::from_secs(TYPING_RATE_LIMIT_SECS) {
+                                                continue;
+                                            }
+                                        }
+                                        typing_last.insert(payload.channel_id.clone(), now);
+
+                                        // Look up channel to get community_id.
+                                        let community_id = {
+                                            let mut conn = match state.db.get().await {
+                                                Ok(c) => c,
+                                                Err(_) => continue,
+                                            };
+                                            match diesel_async::RunQueryDsl::get_result::<String>(
+                                                channels::table
+                                                    .find(&payload.channel_id)
+                                                    .select(channels::community_id),
+                                                &mut conn,
+                                            )
+                                            .await
+                                            {
+                                                Ok(cid) => cid,
+                                                Err(_) => continue, // channel not found — silently ignore
+                                            }
+                                        };
+
+                                        // Verify subscription.
+                                        if !session.is_subscribed(&community_id) {
+                                            continue;
+                                        }
+
+                                        // Broadcast TYPING_START.
+                                        state.broadcast.dispatch(BroadcastPayload {
+                                            community_id,
+                                            event_name: EventName::TYPING_START.to_string(),
+                                            data: serde_json::json!({
+                                                "channel_id": payload.channel_id,
+                                                "user_id": session.user_id,
+                                                "username": session.username,
+                                                "timestamp": chrono::Utc::now(),
+                                            }),
+                                        });
+                                    }
+                                    _ => continue, // ignore unknown client events
                                 }
                             }
                             OP_IDENTIFY => {

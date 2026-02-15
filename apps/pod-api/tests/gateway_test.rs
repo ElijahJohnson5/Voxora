@@ -904,3 +904,231 @@ async fn gateway_resume_continues_sequence() {
     common::cleanup_community(&state.db, &community_id).await;
     common::cleanup_test_user(&state.db, &user_id).await;
 }
+
+// ---------------------------------------------------------------------------
+// Typing indicator tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn gateway_typing_broadcasts_to_other_clients() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_a = voxora_common::id::prefixed_ulid("usr");
+    let user_b = voxora_common::id::prefixed_ulid("usr");
+    let client = reqwest::Client::new();
+
+    // Login user A and create a community.
+    let (token_a, ticket_a) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_a, "gw_type_a").await;
+
+    let create_resp = client
+        .post(format!("http://{addr}/api/v1/communities"))
+        .header("Authorization", format!("Bearer {token_a}"))
+        .json(&serde_json::json!({ "name": "Typing Test Community" }))
+        .send()
+        .await
+        .unwrap();
+    let community: serde_json::Value = create_resp.json().await.unwrap();
+    let community_id = community["id"].as_str().unwrap().to_string();
+    let channel_id = community["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Create an invite for user B.
+    let invite_resp = client
+        .post(format!(
+            "http://{addr}/api/v1/communities/{community_id}/invites"
+        ))
+        .header("Authorization", format!("Bearer {token_a}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    let invite: serde_json::Value = invite_resp.json().await.unwrap();
+    let invite_code = invite["code"].as_str().unwrap().to_string();
+
+    // Login user B and accept the invite.
+    let (token_b, ticket_b) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_b, "gw_type_b").await;
+    let _ = token_b; // used only for invite acceptance
+    client
+        .post(format!("http://{addr}/api/v1/invites/{invite_code}/accept"))
+        .header("Authorization", format!("Bearer {token_b}"))
+        .send()
+        .await
+        .unwrap();
+
+    // Connect both users to the gateway.
+    let ws_a = connect_and_identify(addr, &ticket_a).await;
+    let ws_b = connect_and_identify(addr, &ticket_b).await;
+    let (mut write_a, _read_a) = ws_a.split();
+    let (_write_b, mut read_b) = ws_b.split();
+
+    // User A sends TYPING.
+    let typing = serde_json::json!({
+        "op": 0,
+        "t": "TYPING",
+        "d": { "channel_id": channel_id }
+    });
+    write_a
+        .send(tungstenite::Message::Text(typing.to_string().into()))
+        .await
+        .expect("send typing");
+
+    // User B should receive TYPING_START.
+    let msg = time::timeout(Duration::from_secs(5), read_b.next())
+        .await
+        .expect("timeout waiting for TYPING_START")
+        .expect("stream ended")
+        .expect("read error");
+
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse TYPING_START");
+    assert_eq!(event["op"], 0);
+    assert_eq!(event["t"], "TYPING_START");
+    assert_eq!(event["d"]["channel_id"].as_str().unwrap(), channel_id);
+    assert_eq!(event["d"]["user_id"].as_str().unwrap(), user_a);
+    assert_eq!(event["d"]["username"].as_str().unwrap(), "gw_type_a");
+    assert!(event["d"]["timestamp"].is_string());
+
+    // Cleanup.
+    common::cleanup_community(&state.db, &community_id).await;
+    common::cleanup_test_user(&state.db, &user_a).await;
+    common::cleanup_test_user(&state.db, &user_b).await;
+}
+
+#[tokio::test]
+async fn gateway_typing_invalid_channel_is_ignored() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_id = voxora_common::id::prefixed_ulid("usr");
+
+    let ticket = login_and_get_ticket(addr, &keys, &state.config, &user_id, "gw_type_inv").await;
+    let ws = connect_and_identify(addr, &ticket).await;
+    let (mut write, mut read) = ws.split();
+
+    // Send TYPING with a bogus channel_id.
+    let typing = serde_json::json!({
+        "op": 0,
+        "t": "TYPING",
+        "d": { "channel_id": "ch_bogus_does_not_exist" }
+    });
+    write
+        .send(tungstenite::Message::Text(typing.to_string().into()))
+        .await
+        .expect("send typing");
+
+    // Connection should stay open — send a heartbeat and verify ack.
+    let heartbeat = serde_json::json!({
+        "op": 1,
+        "d": { "seq": 1 }
+    });
+    write
+        .send(tungstenite::Message::Text(heartbeat.to_string().into()))
+        .await
+        .expect("send heartbeat");
+
+    let msg = time::timeout(Duration::from_secs(5), read.next())
+        .await
+        .expect("timeout waiting for heartbeat ack")
+        .expect("stream ended")
+        .expect("read error");
+
+    let text = msg.into_text().expect("not text");
+    let ack: serde_json::Value = serde_json::from_str(&text).expect("parse ack");
+    assert_eq!(ack["op"], 6, "Should receive HEARTBEAT_ACK (connection still alive)");
+
+    // Cleanup.
+    common::cleanup_test_user(&state.db, &user_id).await;
+}
+
+#[tokio::test]
+async fn gateway_typing_rate_limited() {
+    let (addr, state, keys) = start_ws_server().await;
+    let user_a = voxora_common::id::prefixed_ulid("usr");
+    let user_b = voxora_common::id::prefixed_ulid("usr");
+    let client = reqwest::Client::new();
+
+    // Login user A and create community.
+    let (token_a, ticket_a) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_a, "gw_rate_a").await;
+
+    let create_resp = client
+        .post(format!("http://{addr}/api/v1/communities"))
+        .header("Authorization", format!("Bearer {token_a}"))
+        .json(&serde_json::json!({ "name": "Rate Limit Community" }))
+        .send()
+        .await
+        .unwrap();
+    let community: serde_json::Value = create_resp.json().await.unwrap();
+    let community_id = community["id"].as_str().unwrap().to_string();
+    let channel_id = community["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Create an invite for user B.
+    let invite_resp = client
+        .post(format!(
+            "http://{addr}/api/v1/communities/{community_id}/invites"
+        ))
+        .header("Authorization", format!("Bearer {token_a}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    let invite: serde_json::Value = invite_resp.json().await.unwrap();
+    let invite_code = invite["code"].as_str().unwrap().to_string();
+
+    // Login user B and accept invite.
+    let (token_b, ticket_b) =
+        login_and_get_token_and_ticket(addr, &keys, &state.config, &user_b, "gw_rate_b").await;
+    let _ = token_b;
+    client
+        .post(format!("http://{addr}/api/v1/invites/{invite_code}/accept"))
+        .header("Authorization", format!("Bearer {token_b}"))
+        .send()
+        .await
+        .unwrap();
+
+    // Connect both users.
+    let ws_a = connect_and_identify(addr, &ticket_a).await;
+    let ws_b = connect_and_identify(addr, &ticket_b).await;
+    let (mut write_a, _read_a) = ws_a.split();
+    let (_write_b, mut read_b) = ws_b.split();
+
+    // User A sends TYPING twice rapidly.
+    let typing = serde_json::json!({
+        "op": 0,
+        "t": "TYPING",
+        "d": { "channel_id": channel_id }
+    });
+    write_a
+        .send(tungstenite::Message::Text(typing.to_string().into()))
+        .await
+        .expect("send typing 1");
+
+    // Small delay to ensure ordering.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    write_a
+        .send(tungstenite::Message::Text(typing.to_string().into()))
+        .await
+        .expect("send typing 2");
+
+    // User B should receive exactly one TYPING_START.
+    let msg = time::timeout(Duration::from_secs(5), read_b.next())
+        .await
+        .expect("timeout waiting for TYPING_START")
+        .expect("stream ended")
+        .expect("read error");
+
+    let text = msg.into_text().expect("not text");
+    let event: serde_json::Value = serde_json::from_str(&text).expect("parse TYPING_START");
+    assert_eq!(event["t"], "TYPING_START");
+
+    // Second TYPING_START should NOT arrive (rate limited).
+    let result = time::timeout(Duration::from_millis(500), read_b.next()).await;
+    assert!(
+        result.is_err(),
+        "Should timeout — second TYPING should be rate-limited"
+    );
+
+    // Cleanup.
+    common::cleanup_community(&state.db, &community_id).await;
+    common::cleanup_test_user(&state.db, &user_a).await;
+    common::cleanup_test_user(&state.db, &user_b).await;
+}
